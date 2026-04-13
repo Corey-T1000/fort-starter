@@ -1,0 +1,123 @@
+#!/bin/bash
+# Fort Sync - Push local data to remote server (manual, on-demand)
+#
+# Syncs: Fort Memory (Memory), Beads issues, notes, CLAUDE.md
+# These are read by the Fort Agent container on remote server.
+#
+# Usage: fort-sync [--dry-run]
+
+set -e
+
+# Source Fort environment
+_FORT_ENV="${FORT_ROOT:-$HOME/claudes-fort}/.fort-env"
+[ -f "$_FORT_ENV" ] && . "$_FORT_ENV"
+FORT_ROOT="${FORT_ROOT:-$HOME/claudes-fort}"
+
+REMOTE_HOST="${FORT_REMOTE_HOST:-${FORT_REMOTE_IP:-127.0.0.1}}"
+DOLT_DB="$FORT_ROOT/projects/fort-memory"
+
+# Colors
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m'
+
+log() { echo -e "${BLUE}[fort-sync]${NC} $1"; }
+success() { echo -e "${GREEN}✓${NC} $1"; }
+warn() { echo -e "${YELLOW}⚠${NC} $1"; }
+error() { echo -e "${RED}✗${NC} $1"; }
+
+DRY_RUN=false
+RSYNC_FLAGS="-az"
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --dry-run|-n)
+            DRY_RUN=true
+            RSYNC_FLAGS="-az --dry-run"
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: fort-sync [--dry-run]"
+            echo ""
+            echo "Push local Fort data to remote server for the Fort Agent."
+            echo ""
+            echo "Syncs:"
+            echo "  Fort Memory (Memory)  →  ${FORT_REMOTE_HOST:-remote}:~/fort-memory/"
+            echo "  Beads issues        →  ${FORT_REMOTE_HOST:-remote}:~/fort-data/beads/"
+            echo "  Notes               →  ${FORT_REMOTE_HOST:-remote}:~/fort-data/notes/"
+            echo "  CLAUDE.md           →  ${FORT_REMOTE_HOST:-remote}:~/fort-data/CLAUDE.md"
+            echo ""
+            echo "Options:"
+            echo "  --dry-run, -n    Show what would be synced without doing it"
+            exit 0
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
+echo ""
+echo -e "  ${BOLD}Fort Sync → remote server${NC}"
+echo "  ─────────────────────────────────────"
+$DRY_RUN && echo -e "  ${YELLOW}DRY RUN — no changes will be made${NC}"
+echo ""
+
+# Check remote server reachability
+log "Checking remote server..."
+if ! ssh -o ConnectTimeout=3 -o BatchMode=yes ${FORT_REMOTE_HOST:-remote} 'true' 2>/dev/null; then
+    error "remote server unreachable — can't sync"
+    exit 1
+fi
+success "remote server reachable"
+
+# Ensure remote directories exist
+ssh ${FORT_REMOTE_HOST:-remote} "mkdir -p ~/fort-data/beads ~/fort-data/notes ~/fort-memory" 2>/dev/null
+
+# Fort Memory (Memory)
+if [ -d "$DOLT_DB/.dolt" ]; then
+    log "Syncing Fort Memory (Memory)..."
+    rsync $RSYNC_FLAGS --delete "$DOLT_DB/.dolt" "${FORT_REMOTE_HOST:-remote}:~/fort-memory/" 2>/dev/null \
+        && success "Fort Memory synced" \
+        || error "Fort Memory sync failed"
+else
+    warn "Fort Memory not found at $DOLT_DB — skipping"
+fi
+
+# Beads
+if [ -f "$FORT_ROOT/.beads/issues.jsonl" ]; then
+    log "Syncing Beads issues..."
+    rsync $RSYNC_FLAGS "$FORT_ROOT/.beads/issues.jsonl" "${FORT_REMOTE_HOST:-remote}:~/fort-data/beads/" 2>/dev/null \
+        && success "Beads synced" \
+        || error "Beads sync failed"
+else
+    warn "Beads issues not found — skipping"
+fi
+
+# Notes
+if [ -d "$FORT_ROOT/notes" ]; then
+    log "Syncing notes..."
+    rsync $RSYNC_FLAGS "$FORT_ROOT/notes/" "${FORT_REMOTE_HOST:-remote}:~/fort-data/notes/" 2>/dev/null \
+        && success "Notes synced" \
+        || error "Notes sync failed"
+else
+    warn "Notes directory not found — skipping"
+fi
+
+# CLAUDE.md
+if [ -f "$FORT_ROOT/CLAUDE.md" ]; then
+    log "Syncing CLAUDE.md..."
+    rsync $RSYNC_FLAGS "$FORT_ROOT/CLAUDE.md" "${FORT_REMOTE_HOST:-remote}:~/fort-data/CLAUDE.md" 2>/dev/null \
+        && success "CLAUDE.md synced" \
+        || error "CLAUDE.md sync failed"
+fi
+
+echo ""
+echo "  ─────────────────────────────────────"
+$DRY_RUN && echo -e "  ${YELLOW}Dry run complete — re-run without --dry-run to apply${NC}" \
+         || success "Sync complete"
+echo ""

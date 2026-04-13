@@ -1,0 +1,38 @@
+#!/bin/bash
+# One-time setup for Fort Sandbox
+# Run this once to configure Claude in the sandbox VM
+
+set -e
+
+# Source Fort environment
+_FORT_ENV="${FORT_ROOT:-$HOME/claudes-fort}/.fort-env"
+[ -f "$_FORT_ENV" ] && . "$_FORT_ENV"
+FORT_ROOT="${FORT_ROOT:-$HOME/claudes-fort}"
+
+SANDBOX_VM="fort-sandbox"
+
+echo "=== Fort Sandbox Setup ==="
+echo ""
+echo "This will configure Claude CLI in the sandboxed VM."
+echo ""
+
+# Check if VM is running
+if ! orb list | grep -q "$SANDBOX_VM.*running"; then
+    echo "Starting sandbox VM..."
+    orb start $SANDBOX_VM
+    sleep 2
+fi
+
+echo "Opening interactive Claude login in sandbox..."
+echo "This will open a browser for authentication."
+echo ""
+
+# Run claude login interactively
+orb -m $SANDBOX_VM claude
+
+echo ""
+echo "=== Setup Complete ==="
+echo ""
+echo "You can now run sandboxed tasks with:"
+echo "  $FORT_ROOT/bin/fort-sandbox \"Your task here\""
+echo ""

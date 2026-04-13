@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.fort.daily-receipt</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__FORT_ROOT__/bin/daily-receipt</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__FORT_ROOT__</string>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>18</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/daily-receipt.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/daily-receipt.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:__FORT_ROOT__/bin</string>
+    </dict>
+</dict>
+</plist>

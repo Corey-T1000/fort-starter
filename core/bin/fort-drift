@@ -1,0 +1,238 @@
+#!/bin/bash
+# fort-drift — detect local modifications to assembled Fort components
+#
+# Compares assembled files against their source using manifest hashes.
+# Exit: 0=clean, 1=drift detected, 2=no manifest
+#
+# Usage: fort-drift [--detail] [--notify] [--quiet] [--help]
+
+set -euo pipefail
+
+# Source Fort environment
+_FORT_ENV="${FORT_ROOT:-$HOME/claudes-fort}/.fort-env"
+[ -f "$_FORT_ENV" ] && . "$_FORT_ENV"
+FORT_ROOT="${FORT_ROOT:-$HOME/claudes-fort}"
+
+# ─── Flags ────────────────────────────────────────────────
+
+DETAIL=false
+NOTIFY=false
+QUIET=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --detail)  DETAIL=true; shift ;;
+    --notify)  NOTIFY=true; shift ;;
+    --quiet)   QUIET=true; shift ;;
+    --help|-h)
+      echo "Usage: fort-drift [OPTIONS]"
+      echo ""
+      echo "Compare assembled Fort components against their sources using manifest hashes."
+      echo ""
+      echo "Options:"
+      echo "  --detail   Show unified diffs for drifted files"
+      echo "  --notify   Send drift report via Fort Mail + fort-stream audit entry"
+      echo "  --quiet    Exit code only (0=clean, 1=drift, 2=no manifest)"
+      echo "  --help     This message"
+      exit 0
+      ;;
+    *) echo "Unknown option: $1"; exit 1 ;;
+  esac
+done
+
+# ─── Manifest Check ──────────────────────────────────────
+
+MANIFEST="$FORT_ROOT/fort-manifest.json"
+
+if [[ ! -f "$MANIFEST" ]]; then
+  $QUIET || echo "✗ No fort-manifest.json found — run fort-bootstrap first"
+  exit 2
+fi
+
+# ─── Extract manifest metadata ───────────────────────────
+
+read_manifest() {
+  local field="$1"
+  python3 -c "import json,sys; m=json.load(open('$MANIFEST')); print(m.get('$field',''))"
+}
+
+PROFILE=$(read_manifest profile)
+MACHINE=$(read_manifest machine)
+ASSEMBLED_AT=$(read_manifest assembled_at)
+
+# ─── Drift Detection ─────────────────────────────────────
+
+DRIFTED=()
+MISSING=()
+REPORT=""
+
+check_component() {
+  local assembled_path="$1"
+  local source_path="$2"
+  local manifest_hash="$3"
+  local label="$4"
+
+  if [[ ! -f "$FORT_ROOT/$assembled_path" ]]; then
+    MISSING+=("MISSING  $label (source: $source_path)")
+    return
+  fi
+
+  local current_hash
+  current_hash=$(md5 -q "$FORT_ROOT/$assembled_path")
+
+  if [[ "$current_hash" != "$manifest_hash" ]]; then
+    DRIFTED+=("DRIFTED  $label (source: $source_path)")
+    if $DETAIL && [[ -f "$FORT_ROOT/$source_path" ]]; then
+      REPORT+="$(echo "")"
+      REPORT+="$(echo "--- $source_path")"
+      REPORT+="$(echo "+++ $assembled_path")"
+      REPORT+="$(diff -u "$FORT_ROOT/$source_path" "$FORT_ROOT/$assembled_path" 2>/dev/null | tail -n +3 || true)"
+      REPORT+="$(echo "")"
+    fi
+  fi
+}
+
+# Check hooks
+while IFS=$'\t' read -r name source hash; do
+  [[ -z "$name" ]] && continue
+  check_component ".claude/hooks/$name" "$source" "$hash" "hooks/$name"
+done < <(python3 -c "
+import json
+m = json.load(open('$MANIFEST'))
+for h in m.get('components',{}).get('hooks',[]):
+    print(h['name'] + '\t' + h['source'] + '\t' + h['hash'])
+")
+
+# Check rules
+while IFS=$'\t' read -r name source hash; do
+  [[ -z "$name" ]] && continue
+  check_component ".claude/rules/$name" "$source" "$hash" "rules/$name"
+done < <(python3 -c "
+import json
+m = json.load(open('$MANIFEST'))
+for r in m.get('components',{}).get('rules',[]):
+    print(r['name'] + '\t' + r['source'] + '\t' + r['hash'])
+")
+
+# Check commands
+while IFS=$'\t' read -r name source hash; do
+  [[ -z "$name" ]] && continue
+  check_component ".claude/commands/$name" "$source" "$hash" "commands/$name"
+done < <(python3 -c "
+import json
+m = json.load(open('$MANIFEST'))
+for c in m.get('components',{}).get('commands',[]):
+    print(c['name'] + '\t' + c['source'] + '\t' + c['hash'])
+")
+
+# Check bin scripts
+while IFS=$'\t' read -r name source hash; do
+  [[ -z "$name" ]] && continue
+  check_component "bin/$name" "$source" "$hash" "bin/$name"
+done < <(python3 -c "
+import json
+m = json.load(open('$MANIFEST'))
+for b in m.get('components',{}).get('bin',[]):
+    print(b['name'] + '\t' + b['source'] + '\t' + b['hash'])
+")
+
+# Check plugin skills — hash each assembled skill against its source
+while IFS=$'\t' read -r plugin_name plugin_source skill_name; do
+  [[ -z "$plugin_name" ]] && continue
+  local_skill="plugins/$plugin_name/skills/$skill_name"
+  source_skill="$plugin_source/skills/$skill_name"
+
+  if [[ ! -f "$FORT_ROOT/$local_skill" ]]; then
+    MISSING+=("MISSING  $local_skill")
+    continue
+  fi
+
+  if [[ -f "$FORT_ROOT/$source_skill" ]]; then
+    local source_hash current_hash
+    source_hash=$(md5 -q "$FORT_ROOT/$source_skill")
+    current_hash=$(md5 -q "$FORT_ROOT/$local_skill")
+    if [[ "$current_hash" != "$source_hash" ]]; then
+      DRIFTED+=("DRIFTED  $local_skill")
+      if $DETAIL; then
+        REPORT+="$(echo "")"
+        REPORT+="$(echo "--- $source_skill")"
+        REPORT+="$(echo "+++ $local_skill")"
+        REPORT+="$(diff -u "$FORT_ROOT/$source_skill" "$FORT_ROOT/$local_skill" 2>/dev/null | tail -n +3 || true)"
+        REPORT+="$(echo "")"
+      fi
+    fi
+  fi
+done < <(python3 -c "
+import json
+m = json.load(open('$MANIFEST'))
+for p in m.get('components',{}).get('plugins',[]):
+    for s in p.get('skills',[]):
+        print(p['name'] + '\t' + p['source'] + '\t' + s)
+")
+
+# ─── Output ──────────────────────────────────────────────
+
+TOTAL=$(( ${#DRIFTED[@]} + ${#MISSING[@]} ))
+
+if $QUIET; then
+  [[ $TOTAL -eq 0 ]] && exit 0 || exit 1
+fi
+
+if [[ $TOTAL -eq 0 ]]; then
+  echo "✓ No drift detected ($MACHINE, profile: $PROFILE, assembled: $ASSEMBLED_AT)"
+  exit 0
+fi
+
+# Build report text
+REPORT_TEXT="⚠ Drift detected: $TOTAL component(s) modified since last assembly
+  Machine: $MACHINE | Profile: $PROFILE | Assembled: $ASSEMBLED_AT
+"
+
+for line in "${DRIFTED[@]}"; do
+  REPORT_TEXT+="
+  $line"
+done
+
+for line in "${MISSING[@]}"; do
+  REPORT_TEXT+="
+  $line"
+done
+
+echo "$REPORT_TEXT"
+
+if $DETAIL && [[ -n "$REPORT" ]]; then
+  echo ""
+  echo "$REPORT"
+fi
+
+# ─── Notify ──────────────────────────────────────────────
+
+if $NOTIFY; then
+  FORT_MAIL_URL="${FORT_MAIL_URL:-http://${FORT_REMOTE_IP:-127.0.0.1}:8080}"
+  HOSTNAME_SHORT=$(hostname -s)
+  SUBJECT="Drift: $TOTAL component(s) on $HOSTNAME_SHORT"
+
+  # Send via Fort Mail (fail silently)
+  mail_body=$(python3 -c "
+import json, sys
+report = sys.stdin.read()
+print(json.dumps({
+    'from': '$HOSTNAME_SHORT',
+    'to': 'claudes-fort',
+    'subject': '$SUBJECT',
+    'body': report
+}))
+" <<< "$REPORT_TEXT")
+  curl -s -X POST "$FORT_MAIL_URL/api/messages" \
+    -H "Content-Type: application/json" \
+    -d "$mail_body" > /dev/null 2>&1 || true
+
+  # Log via fort-stream if available
+  if command -v fort-stream &>/dev/null; then
+    fort-stream audit "skill-drift: $TOTAL component(s) modified on $HOSTNAME_SHORT" fort-bootstrap || true
+  elif [[ -x "$FORT_ROOT/bin/fort-stream" ]]; then
+    "$FORT_ROOT/bin/fort-stream" audit "skill-drift: $TOTAL component(s) modified on $HOSTNAME_SHORT" fort-bootstrap || true
+  fi
+fi
+
+exit 1

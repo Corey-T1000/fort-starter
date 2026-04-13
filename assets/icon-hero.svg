@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="64" height="64">
+  <!-- fort-starter Icon — 5-layer charcoal + teal flag, door gap -->
+  <rect x="22" y="46" width="48" height="10" rx="1" fill="#555555" transform="rotate(0.4 46 51)"/>
+  <rect x="20" y="58" width="20" height="10" rx="1" fill="#3D3D3D" transform="rotate(-0.3 30 63)"/>
+  <rect x="52" y="58" width="20" height="10" rx="1" fill="#333333" transform="rotate(-0.3 62 63)"/>
+  <rect x="24" y="70" width="17" height="10" rx="1" fill="#252525" transform="rotate(0.5 32 75)"/>
+  <rect x="53" y="70" width="15" height="10" rx="1" fill="#1A1A1A" transform="rotate(0.5 60 75)"/>
+  <line x1="56" y1="22" x2="56" y2="46" stroke="#1A1A1A" stroke-width="1.5"/>
+  <polygon points="57,23 71,28 57,34" fill="#2A9D8F"/>
+</svg>

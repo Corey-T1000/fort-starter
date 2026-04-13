@@ -1,0 +1,91 @@
+#!/bin/bash
+# Fort Notify - Send push notifications via ntfy.sh
+#
+# Usage:
+#   fort-notify "message"
+#   fort-notify -t "Title" "message"
+#   fort-notify -p high "urgent message"
+#
+# Priorities: min, low, default, high, urgent
+
+set -e
+
+# Load config
+CONFIG="$HOME/.config/fort/ntfy.conf"
+if [[ -f "$CONFIG" ]]; then
+    source "$CONFIG"
+else
+    echo "Error: Config not found at $CONFIG"
+    echo "Create it with NTFY_URL, NTFY_TOPIC, and NTFY_TOKEN"
+    exit 1
+fi
+
+# Defaults
+TITLE=""
+PRIORITY="default"
+TAGS=""
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -t|--title)
+            TITLE="$2"
+            shift 2
+            ;;
+        -p|--priority)
+            PRIORITY="$2"
+            shift 2
+            ;;
+        --tags)
+            TAGS="$2"
+            shift 2
+            ;;
+        -h|--help)
+            echo "Usage: fort-notify [options] <message>"
+            echo ""
+            echo "Options:"
+            echo "  -t, --title     Notification title"
+            echo "  -p, --priority  Priority: min, low, default, high, urgent"
+            echo "  --tags          Comma-separated emoji tags (e.g., 'rocket,tada')"
+            echo ""
+            echo "Examples:"
+            echo "  fort-notify 'Build complete'"
+            echo "  fort-notify -t 'Deploy' -p high 'Production updated'"
+            echo "  fort-notify --tags 'warning' 'Disk space low'"
+            exit 0
+            ;;
+        *)
+            MESSAGE="$1"
+            shift
+            ;;
+    esac
+done
+
+# Validate priority
+case "$PRIORITY" in
+    min|low|default|high|urgent) ;;
+    *) echo "Error: Invalid priority '$PRIORITY'. Use: min, low, default, high, urgent"; exit 1 ;;
+esac
+
+if [[ -z "$MESSAGE" ]]; then
+    echo "Error: No message provided"
+    echo "Usage: fort-notify [options] <message>"
+    exit 1
+fi
+
+# Build curl command
+CURL_ARGS=(-s -u ":$NTFY_TOKEN")
+[[ -n "$TITLE" ]] && CURL_ARGS+=(-H "Title: $TITLE")
+[[ -n "$PRIORITY" ]] && CURL_ARGS+=(-H "Priority: $PRIORITY")
+[[ -n "$TAGS" ]] && CURL_ARGS+=(-H "Tags: $TAGS")
+
+# Send notification
+RESPONSE=$(curl "${CURL_ARGS[@]}" -d "$MESSAGE" "$NTFY_URL/$NTFY_TOPIC" 2>/dev/null)
+
+if echo "$RESPONSE" | grep -q '"id"'; then
+    echo "✓ Notification sent"
+else
+    echo "✗ Failed to send notification"
+    echo "$RESPONSE"
+    exit 1
+fi

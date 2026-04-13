@@ -1,0 +1,73 @@
+#!/bin/bash
+# fort-agents — show all running Claude sessions
+# Works from desktop or mobile (Moshi/SSH)
+
+C_DIM='\033[38;5;242m'
+C_BRIGHT='\033[38;5;252m'
+C_GREEN='\033[38;5;114m'
+C_AMBER='\033[38;5;215m'
+C_FAINT='\033[38;5;238m'
+RESET='\033[0m'
+
+# Light mode detection
+if defaults read -g AppleInterfaceStyle &>/dev/null 2>&1; then
+    : # dark mode, defaults are fine
+else
+    C_DIM='\033[38;5;243m'
+    C_BRIGHT='\033[38;5;235m'
+    C_GREEN='\033[38;5;28m'
+    C_AMBER='\033[38;5;166m'
+    C_FAINT='\033[38;5;249m'
+fi
+
+# Find top-level claude processes (not subagents/MCP servers)
+# Claude Code main processes have --type=cli or are the direct `claude` command
+seen_dirs=()
+count=0
+
+while IFS= read -r pid; do
+    # Get working directory
+    cwd=$(lsof -p "$pid" -Fn 2>/dev/null | awk '/^fcwd/{getline; print substr($0,2); exit}')
+    [[ -z "$cwd" ]] && continue
+
+    # Deduplicate by directory (subagents share cwd with parent)
+    skip=false
+    for seen in "${seen_dirs[@]}"; do
+        [[ "$seen" == "$cwd" ]] && skip=true && break
+    done
+    $skip && continue
+    seen_dirs+=("$cwd")
+
+    # Shorten path
+    short="${cwd/#$HOME/~}"
+    project=$(basename "$cwd")
+
+    # Check if in a tmux session
+    in_tmux=""
+    if tmux list-panes -a -F '#{pane_pid} #{session_name}' 2>/dev/null | grep -q "^$pid "; then
+        session=$(tmux list-panes -a -F '#{pane_pid} #{session_name}' 2>/dev/null | awk "/^$pid /{print \$2}")
+        in_tmux=" ${C_GREEN}[tmux:${session}]${RESET}"
+    fi
+
+    # Count subagents in same directory
+    sub_count=$(ps aux | grep -v grep | grep "[c]laude" | while read -r line; do
+        spid=$(echo "$line" | awk '{print $2}')
+        scwd=$(lsof -p "$spid" -Fn 2>/dev/null | awk '/^fcwd/{getline; print substr($0,2); exit}')
+        [[ "$scwd" == "$cwd" ]] && echo x
+    done | wc -l | tr -d ' ')
+
+    agents_label=""
+    if [[ "$sub_count" -gt 1 ]]; then
+        agents_label=" ${C_DIM}(${sub_count} processes)${RESET}"
+    fi
+
+    count=$((count + 1))
+    echo -e "  ${C_BRIGHT}${project}${RESET} ${C_FAINT}${short}${RESET}${agents_label}${in_tmux}"
+
+done < <(pgrep -x "claude" 2>/dev/null | sort -u)
+
+if [[ "$count" -eq 0 ]]; then
+    echo -e "  ${C_DIM}No Claude sessions running${RESET}"
+else
+    echo -e "\n  ${C_DIM}${count} session(s)${RESET}"
+fi

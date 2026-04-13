@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# Distill Background — processes the distill queue asynchronously.
+# Handles Memory saves, flush, remote backup, and queue cleanup.
+#
+# Usage:
+#   distill-background           # Process all queued items
+#   distill-background --dry-run # Show what would be processed
+#
+# Queue: ~/.claude/projects/-Users-$(whoami)-claudes-fort/memory/.distill-queue/*.jsonl
+# Each JSONL file contains pre-extracted facts from the fast path.
+set -euo pipefail
+
+# Source Fort environment
+_FORT_ENV="${FORT_ROOT:-$HOME/claudes-fort}/.fort-env"
+[ -f "$_FORT_ENV" ] && . "$_FORT_ENV"
+FORT_ROOT="${FORT_ROOT:-$HOME/claudes-fort}"
+
+QUEUE_DIR="$HOME/.claude/projects/-Users-${FORT_USER:-$(whoami)}-claudes-fort/memory/.distill-queue"
+PROCESSED_DIR="$QUEUE_DIR/.processed"
+MEMORY_DIR="$HOME/.claude/projects/-Users-${FORT_USER:-$(whoami)}-claudes-fort/memory"
+DRY_RUN=false
+
+if [[ "${1:-}" == "--dry-run" ]]; then
+  DRY_RUN=true
+fi
+
+mkdir -p "$QUEUE_DIR" "$PROCESSED_DIR"
+
+# Count pending items
+PENDING=$(find "$QUEUE_DIR" -maxdepth 1 -name "*.jsonl" 2>/dev/null | wc -l | tr -d ' ')
+if [[ "$PENDING" == "0" ]]; then
+  echo "Queue empty — nothing to process"
+  exit 0
+fi
+
+echo "Processing $PENDING queued distill item(s)..."
+
+PROCESSED=0
+FAILED=0
+
+for f in "$QUEUE_DIR"/*.jsonl; do
+  [[ -f "$f" ]] || continue
+  BASENAME=$(basename "$f")
+
+  if [[ "$DRY_RUN" == "true" ]]; then
+    FACT_COUNT=$(jq -r '.facts | length' "$f" 2>/dev/null || echo "?")
+    echo "  Would process: $BASENAME ($FACT_COUNT facts)"
+    continue
+  fi
+
+  echo "  Processing: $BASENAME"
+
+  # Extract and save each fact
+  FACT_COUNT=$(jq -r '.facts | length' "$f" 2>/dev/null || echo "0")
+  SAVE_ERRORS=0
+
+  for i in $([ "$FACT_COUNT" -gt 0 ] && seq 0 $((FACT_COUNT - 1))); do
+    TOPIC=$(jq -r ".facts[$i].topic" "$f")
+    FACT=$(jq -r ".facts[$i].fact" "$f")
+
+    if [[ -z "$TOPIC" || -z "$FACT" || "$TOPIC" == "null" ]]; then
+      continue
+    fi
+
+    if ! fort-memory save "$TOPIC" "$FACT" --source observed --no-commit 2>&1; then
+      echo "    WARNING: Failed to save fact $i ($TOPIC)" >&2
+      SAVE_ERRORS=$((SAVE_ERRORS + 1))
+    fi
+  done
+
+  # Flush batch
+  if [[ "$FACT_COUNT" -gt 0 && "$SAVE_ERRORS" -lt "$FACT_COUNT" ]]; then
+    if fort-memory flush 2>&1; then
+      echo "    Flushed $((FACT_COUNT - SAVE_ERRORS))/$FACT_COUNT facts to memory"
+    else
+      echo "    WARNING: Flush failed" >&2
+    fi
+  fi
+
+  # Rsync memory files to remote server
+  if [ -n "${FORT_REMOTE_HOST:-}" ]; then
+    if rsync -a "$MEMORY_DIR/" "${FORT_REMOTE_HOST}:${FORT_REMOTE_BACKUP_PATH:-/server/fort/backups/memory}/" 2>/dev/null; then
+      echo "    Backed up to remote server"
+    else
+      echo "    WARNING: Remote backup failed — will retry next run" >&2
+    fi
+  fi
+
+  # Move to processed (only if at least some facts saved)
+  if [[ "$SAVE_ERRORS" -lt "$FACT_COUNT" ]]; then
+    mv "$f" "$PROCESSED_DIR/$BASENAME"
+    PROCESSED=$((PROCESSED + 1))
+  else
+    FAILED=$((FAILED + 1))
+    echo "    ERROR: All facts failed — keeping in queue for retry" >&2
+  fi
+done
+
+if [[ "$DRY_RUN" == "true" ]]; then
+  echo "Dry run complete — no changes made"
+else
+  echo "Done: $PROCESSED processed, $FAILED failed"
+fi
+
+# Clean up old processed files (keep last 7 days)
+find "$PROCESSED_DIR" -name "*.jsonl" -mtime +7 -delete 2>/dev/null || true

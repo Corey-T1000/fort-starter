@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+# compress — local image compression CLI
+# Usage: compress file.png [file2.jpg ...] [-q 80] [-o output_dir]
+set -euo pipefail
+
+QUALITY=80
+OUTPUT_DIR=""
+FILES=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -q|--quality) QUALITY="$2"; shift 2 ;;
+    -o|--output)  OUTPUT_DIR="$2"; shift 2 ;;
+    -h|--help)
+      echo "Usage: compress [options] file1 [file2 ...]"
+      echo ""
+      echo "Options:"
+      echo "  -q, --quality NUM   Quality 10-100 (default: 80)"
+      echo "  -o, --output DIR    Output directory (default: same as input)"
+      echo "  -h, --help          Show this help"
+      echo ""
+      echo "Supports: PNG, JPEG, WebP, AVIF"
+      exit 0
+      ;;
+    -*) echo "Unknown option: $1" >&2; exit 1 ;;
+    *)  FILES+=("$1"); shift ;;
+  esac
+done
+
+if [[ ${#FILES[@]} -eq 0 ]]; then
+  echo "No files provided. Use: compress file.png [file2.jpg ...]" >&2
+  exit 1
+fi
+
+# Check dependencies
+for cmd in pngquant optipng; do
+  if ! command -v "$cmd" &>/dev/null; then
+    echo "Missing: $cmd — install with: brew install $cmd" >&2
+    exit 1
+  fi
+done
+
+format_size() {
+  local bytes=$1
+  if (( bytes < 1024 )); then
+    echo "${bytes} B"
+  elif (( bytes < 1048576 )); then
+    echo "$(echo "scale=1; $bytes / 1024" | bc) KB"
+  else
+    echo "$(echo "scale=2; $bytes / 1048576" | bc) MB"
+  fi
+}
+
+total_saved=0
+total_original=0
+count=0
+
+for file in "${FILES[@]}"; do
+  if [[ ! -f "$file" ]]; then
+    echo "  skip: $file (not found)"
+    continue
+  fi
+
+  ext="${file##*.}"
+  ext_lower="$(echo "$ext" | tr '[:upper:]' '[:lower:]')"
+  basename="$(basename "$file" ".$ext")"
+
+  if [[ -n "$OUTPUT_DIR" ]]; then
+    mkdir -p "$OUTPUT_DIR"
+    outfile="$OUTPUT_DIR/${basename}-min.${ext_lower}"
+  else
+    outfile="$(dirname "$file")/${basename}-min.${ext_lower}"
+  fi
+
+  original_size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null)
+
+  case "$ext_lower" in
+    png)
+      min_q=$(( QUALITY > 20 ? QUALITY - 20 : 0 ))
+      tmp_quant=$(mktemp /tmp/compress-XXXXXX.png)
+      if pngquant --quality "${min_q}-${QUALITY}" --speed 1 --output "$tmp_quant" --force "$file" 2>/dev/null; then
+        optipng -o2 -out "$outfile" "$tmp_quant" 2>/dev/null
+      else
+        # pngquant quality target too strict, use optipng only
+        optipng -o2 -out "$outfile" "$file" 2>/dev/null
+      fi
+      rm -f "$tmp_quant"
+      ;;
+    jpg|jpeg)
+      # Use sharp via node one-liner for mozjpeg
+      node -e "
+        const sharp = require('$(dirname "$0")/node_modules/sharp');
+        sharp('$file').jpeg({ quality: $QUALITY, mozjpeg: true }).toFile('$outfile').catch(e => { console.error(e.message); process.exit(1); });
+      "
+      ;;
+    webp)
+      if command -v cwebp &>/dev/null; then
+        cwebp -q "$QUALITY" "$file" -o "$outfile" 2>/dev/null
+      else
+        node -e "
+          const sharp = require('$(dirname "$0")/node_modules/sharp');
+          sharp('$file').webp({ quality: $QUALITY }).toFile('$outfile').catch(e => { console.error(e.message); process.exit(1); });
+        "
+      fi
+      ;;
+    avif)
+      node -e "
+        const sharp = require('$(dirname "$0")/node_modules/sharp');
+        sharp('$file').avif({ quality: $QUALITY }).toFile('$outfile').catch(e => { console.error(e.message); process.exit(1); });
+      "
+      ;;
+    *)
+      echo "  skip: $file (unsupported format: .$ext_lower)"
+      continue
+      ;;
+  esac
+
+  if [[ ! -f "$outfile" ]]; then
+    echo "  fail: $file"
+    continue
+  fi
+
+  compressed_size=$(stat -f%z "$outfile" 2>/dev/null || stat -c%s "$outfile" 2>/dev/null)
+  savings=$(echo "scale=1; (1 - $compressed_size / $original_size) * 100" | bc)
+  total_saved=$(( total_saved + original_size - compressed_size ))
+  total_original=$(( total_original + original_size ))
+  count=$(( count + 1 ))
+
+  printf "  %-30s %8s → %8s  (%s%%)\n" "$(basename "$file")" "$(format_size "$original_size")" "$(format_size "$compressed_size")" "$savings"
+done
+
+if (( count > 1 )); then
+  echo ""
+  echo "  $count files — saved $(format_size $total_saved) total"
+fi

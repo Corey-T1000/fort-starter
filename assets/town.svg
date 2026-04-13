@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 96" width="660" height="96">
+  <g transform="translate(15, 13) scale(0.9)">
+    <rect x="22" y="46" width="48" height="10" rx="1" fill="#8B3A2A" transform="rotate(0.4 46 51)"/>
+    <rect x="20" y="58" width="20" height="10" rx="1" fill="#A44E3C" transform="rotate(-0.3 30 63)"/>
+    <rect x="52" y="58" width="20" height="10" rx="1" fill="#A44E3C" transform="rotate(-0.3 62 63)"/>
+    <rect x="24" y="70" width="17" height="10" rx="1" fill="#BE6550" transform="rotate(0.5 32 75)"/>
+    <rect x="53" y="70" width="15" height="10" rx="1" fill="#BE6550" transform="rotate(0.5 60 75)"/>
+    <line x1="56" y1="22" x2="56" y2="46" stroke="#4A1E14" stroke-width="1.5"/>
+    <polygon points="57,23 71,28 57,34" fill="#E9B44C"/>
+  </g>
+  <g transform="translate(105, 27) scale(0.72)">
+    <rect x="22" y="46" width="48" height="10" rx="1" fill="#1B6B7A" transform="rotate(0.4 46 51)"/>
+    <rect x="20" y="58" width="20" height="10" rx="1" fill="#2A8A8F" transform="rotate(-0.3 30 63)"/>
+    <rect x="52" y="58" width="20" height="10" rx="1" fill="#2A8A8F" transform="rotate(-0.3 62 63)"/>
+    <rect x="24" y="70" width="17" height="10" rx="1" fill="#3DA5A0" transform="rotate(0.5 32 75)"/>
+    <rect x="53" y="70" width="15" height="10" rx="1" fill="#3DA5A0" transform="rotate(0.5 60 75)"/>
+    <line x1="56" y1="22" x2="56" y2="46" stroke="#0F3B40" stroke-width="1.5"/>
+    <polygon points="57,23 71,28 57,34" fill="#F4845F"/>
+  </g>
+  <g transform="translate(180, 17) scale(0.85)">
+    <rect x="22" y="46" width="48" height="10" rx="1" fill="#1A1A1A" transform="rotate(0.4 46 51)"/>
+    <rect x="20" y="58" width="20" height="10" rx="1" fill="#333333" transform="rotate(-0.3 30 63)"/>
+    <rect x="52" y="58" width="20" height="10" rx="1" fill="#333333" transform="rotate(-0.3 62 63)"/>
+    <rect x="24" y="70" width="17" height="10" rx="1" fill="#4D4D4D" transform="rotate(0.5 32 75)"/>
+    <rect x="53" y="70" width="15" height="10" rx="1" fill="#4D4D4D" transform="rotate(0.5 60 75)"/>
+    <line x1="56" y1="22" x2="56" y2="46" stroke="#1A1A1A" stroke-width="1.5"/>
+    <polygon points="57,23 71,28 57,34" fill="#2A9D8F"/>
+  </g>
+  <g transform="translate(265, 29) scale(0.7)">
+    <rect x="22" y="46" width="48" height="10" rx="1" fill="#6B5B7B" transform="rotate(0.4 46 51)"/>
+    <rect x="20" y="58" width="20" height="10" rx="1" fill="#7E6C8F" transform="rotate(-0.3 30 63)"/>
+    <rect x="52" y="58" width="20" height="10" rx="1" fill="#7E6C8F" transform="rotate(-0.3 62 63)"/>
+    <rect x="24" y="70" width="17" height="10" rx="1" fill="#9684A6" transform="rotate(0.5 32 75)"/>
+    <rect x="53" y="70" width="15" height="10" rx="1" fill="#9684A6" transform="rotate(0.5 60 75)"/>
+    <line x1="56" y1="22" x2="56" y2="46" stroke="#3B2D4A" stroke-width="1.5"/>
+    <polygon points="57,23 71,28 57,34" fill="#E8A838"/>
+  </g>
+  <g transform="translate(340, 21) scale(0.8)">
+    <rect x="22" y="46" width="48" height="10" rx="1" fill="#3D6B4F" transform="rotate(0.4 46 51)"/>
+    <rect x="20" y="58" width="20" height="10" rx="1" fill="#4E8060" transform="rotate(-0.3 30 63)"/>
+    <rect x="52" y="58" width="20" height="10" rx="1" fill="#4E8060" transform="rotate(-0.3 62 63)"/>
+    <rect x="24" y="70" width="17" height="10" rx="1" fill="#6A9B78" transform="rotate(0.5 32 75)"/>
+    <rect x="53" y="70" width="15" height="10" rx="1" fill="#6A9B78" transform="rotate(0.5 60 75)"/>
+    <line x1="56" y1="22" x2="56" y2="46" stroke="#1E3A28" stroke-width="1.5"/>
+    <polygon points="57,23 71,28 57,34" fill="#C75B3A"/>
+  </g>
+  <g transform="translate(420, 33) scale(0.65)">
+    <rect x="22" y="46" width="48" height="10" rx="1" fill="#B87333" transform="rotate(0.4 46 51)"/>
+    <rect x="20" y="58" width="20" height="10" rx="1" fill="#C4893F" transform="rotate(-0.3 30 63)"/>
+    <rect x="52" y="58" width="20" height="10" rx="1" fill="#C4893F" transform="rotate(-0.3 62 63)"/>
+    <rect x="24" y="70" width="17" height="10" rx="1" fill="#D49B52" transform="rotate(0.5 32 75)"/>
+    <rect x="53" y="70" width="15" height="10" rx="1" fill="#D49B52" transform="rotate(0.5 60 75)"/>
+    <line x1="56" y1="22" x2="56" y2="46" stroke="#3D2B1F" stroke-width="1.5"/>
+    <polygon points="57,23 71,28 57,34" fill="#C75B3A"/>
+  </g>
+  <g transform="translate(485, 23) scale(0.78)">
+    <rect x="22" y="46" width="48" height="10" rx="1" fill="#0D9488" transform="rotate(0.4 46 51)"/>
+    <rect x="20" y="58" width="20" height="10" rx="1" fill="#14B8A6" transform="rotate(-0.3 30 63)"/>
+    <rect x="52" y="58" width="20" height="10" rx="1" fill="#14B8A6" transform="rotate(-0.3 62 63)"/>
+    <rect x="24" y="70" width="17" height="10" rx="1" fill="#2DD4BF" transform="rotate(0.5 32 75)"/>
+    <rect x="53" y="70" width="15" height="10" rx="1" fill="#2DD4BF" transform="rotate(0.5 60 75)"/>
+    <line x1="56" y1="22" x2="56" y2="46" stroke="#134E4A" stroke-width="1.5"/>
+    <polygon points="57,23 71,28 57,34" fill="#F472B6"/>
+  </g>
+  <g transform="translate(560, 13) scale(0.9)">
+    <rect x="22" y="46" width="48" height="10" rx="1" fill="#C2A878" transform="rotate(0.4 46 51)"/>
+    <rect x="20" y="58" width="20" height="10" rx="1" fill="#D4BE94" transform="rotate(-0.3 30 63)"/>
+    <rect x="52" y="58" width="20" height="10" rx="1" fill="#D4BE94" transform="rotate(-0.3 62 63)"/>
+    <rect x="24" y="70" width="17" height="10" rx="1" fill="#E6D5B0" transform="rotate(0.5 32 75)"/>
+    <rect x="53" y="70" width="15" height="10" rx="1" fill="#E6D5B0" transform="rotate(0.5 60 75)"/>
+    <line x1="56" y1="22" x2="56" y2="46" stroke="#6B5A3E" stroke-width="1.5"/>
+    <polygon points="57,23 71,28 57,34" fill="#2A9D8F"/>
+  </g>
+  <line x1="10" y1="90" x2="660" y2="90" stroke="#CCCCCC" stroke-width="0.8" stroke-dasharray="4,6" opacity="0.4"/>
+</svg>

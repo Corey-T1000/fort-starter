@@ -1,0 +1,217 @@
+#!/usr/bin/env bash
+# Fort Memory CLI — quick access to the agent memory database.
+#
+# Usage:
+#   fort-memory                  # Open interactive SQL shell
+#   fort-memory retro            # Run weekly retro (7 days)
+#   fort-memory retro 14         # Run retro for last 14 days
+#   fort-memory query "SQL"      # Run a one-off query
+#   fort-memory sync             # Push local to remote
+#   fort-memory status           # Show database summary
+set -euo pipefail
+
+# Source Fort environment
+_FORT_ENV="${FORT_ROOT:-$HOME/claudes-fort}/.fort-env"
+[ -f "$_FORT_ENV" ] && . "$_FORT_ENV"
+FORT_ROOT="${FORT_ROOT:-$HOME/claudes-fort}"
+DOLT_DB="$FORT_ROOT/projects/fort-memory"
+
+REMOTE="${FORT_REMOTE_HOST:-}"
+REMOTE_PATH="${FORT_REMOTE_MEMORY_PATH:-fort-memory-remote}"
+PUSH_PENDING_MARKER="$DOLT_DB/.push-pending"
+
+cd "$DOLT_DB"
+
+# --- Resilient push: rsync database to remote, queue on failure ---
+_fort_memory_push() {
+  # Drain any previously queued push first
+  local label="${1:-auto}"
+
+  if ! ssh -o ConnectTimeout=5 "$REMOTE" "true" 2>/dev/null; then
+    touch "$PUSH_PENDING_MARKER"
+    echo "  ⚡ remote unreachable — push queued"
+    return 0
+  fi
+
+  # Ensure remote dir exists
+  ssh "$REMOTE" "mkdir -p $REMOTE_PATH" 2>/dev/null
+
+  if rsync -az --delete "$DOLT_DB/.dolt" "$REMOTE:$REMOTE_PATH/" 2>/dev/null; then
+    rm -f "$PUSH_PENDING_MARKER"
+    echo "  ✅ Pushed to remote ($label)"
+  else
+    touch "$PUSH_PENDING_MARKER"
+    echo "  ⚡ Push failed — queued for next sync"
+  fi
+}
+
+# --- Drain pending push if marker exists ---
+_fort_memory_drain_pending() {
+  if [[ -f "$PUSH_PENDING_MARKER" ]]; then
+    echo "Draining queued push..."
+    _fort_memory_push "drain"
+  fi
+}
+
+case "${1:-shell}" in
+  retro)
+    DAYS="${2:-7}"
+    bash "$DOLT_DB/retro.sh" --days "$DAYS"
+    ;;
+  query|q)
+    shift
+    dolt sql -q "$*"
+    ;;
+  save)
+    # Save a fact to the knowledge table
+    # Usage: fort-memory save <topic> <fact> [--source manual|research|observed] [--confidence high|medium|low]
+    shift
+    TOPIC="${1:?Usage: fort-memory save <topic> <fact>}"
+    shift
+    FACT="${1:?Usage: fort-memory save <topic> <fact>}"
+    shift
+
+    SOURCE="manual"
+    CONFIDENCE="high"
+    NO_COMMIT=false
+    while [[ $# -gt 0 ]]; do
+      case $1 in
+        --source) SOURCE="$2"; shift 2 ;;
+        --confidence) CONFIDENCE="$2"; shift 2 ;;
+        --no-commit) NO_COMMIT=true; shift ;;
+        *) shift ;;
+      esac
+    done
+
+    # Generate ID: know-<topic-slug>-<seq>
+    SLUG=$(echo "$TOPIC" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd 'a-z0-9-' | head -c 40)
+    SEQ=$(dolt sql -r csv -q "SELECT COUNT(*) as c FROM knowledge WHERE topic = '$TOPIC';" | tail -1)
+    SEQ=$((SEQ + 1))
+    ID="know-${SLUG}-$(printf '%03d' "$SEQ")"
+
+    # Get session ID from marker if available
+    SESSION_ID=""
+    if [[ -f /tmp/fort-memory/session-id ]]; then
+      SESSION_ID=$(cat /tmp/fort-memory/session-id)
+    fi
+
+    # Escape single quotes in fact text
+    ESCAPED_FACT=$(echo "$FACT" | sed "s/'/''/g")
+    ESCAPED_TOPIC=$(echo "$TOPIC" | sed "s/'/''/g")
+
+    if ! dolt sql -q "INSERT INTO knowledge (id, topic, fact, source, confidence, session_id)
+      VALUES ('$ID', '$ESCAPED_TOPIC', '$ESCAPED_FACT', '$SOURCE', '$CONFIDENCE', NULLIF('$SESSION_ID', ''));"; then
+      echo "ERROR: Database INSERT failed for $ID" >&2
+      exit 1
+    fi
+
+    if [[ "$NO_COMMIT" == "false" ]]; then
+      dolt add knowledge
+      dolt commit -m "knowledge: $TOPIC — $ID" --allow-empty
+      _fort_memory_drain_pending
+    fi
+
+    echo "Saved: $ID"
+    echo "  Topic: $TOPIC"
+    echo "  Source: $SOURCE | Confidence: $CONFIDENCE"
+    ;;
+  flush)
+    # Commit any pending knowledge changes (staged or unstaged) from --no-commit saves
+    if dolt status 2>/dev/null | grep -q "knowledge"; then
+      dolt add knowledge
+      dolt commit -m "knowledge: batch flush — $(date +%Y-%m-%d)" --allow-empty
+      echo "Flushed pending knowledge changes"
+    else
+      echo "Nothing to flush"
+    fi
+
+    # Push to remote (resilient — queues if offline)
+    _fort_memory_push
+    ;;
+  recall)
+    # Recall facts by topic
+    # Usage: fort-memory recall <topic> [--limit N]
+    shift
+    TOPIC="${1:?Usage: fort-memory recall <topic>}"
+    shift
+
+    LIMIT=20
+    while [[ $# -gt 0 ]]; do
+      case $1 in
+        --limit) LIMIT="$2"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+
+    ESCAPED_TOPIC=$(echo "$TOPIC" | sed "s/'/''/g")
+
+    dolt sql -q "
+      SELECT id, fact, source, confidence, DATE(created_at) as saved
+      FROM knowledge
+      WHERE topic LIKE '%${ESCAPED_TOPIC}%'
+      ORDER BY created_at DESC
+      LIMIT $LIMIT;
+    "
+    ;;
+  knowledge)
+    # List all topics with fact counts
+    dolt sql -q "
+      SELECT
+        topic,
+        COUNT(*) as facts,
+        MAX(DATE(created_at)) as latest,
+        GROUP_CONCAT(DISTINCT source) as sources
+      FROM knowledge
+      GROUP BY topic
+      ORDER BY MAX(created_at) DESC;
+    "
+    ;;
+  latest)
+    # Print the single most recent knowledge entry date (for staleness checks)
+    dolt sql -r csv -q "SELECT MAX(DATE(created_at)) FROM knowledge;" | tail -1
+    ;;
+  sync)
+    echo "Syncing to remote..."
+    _fort_memory_push "manual"
+    ;;
+  status)
+    dolt sql -q "
+      SELECT 'sessions' as tbl, COUNT(*) as cnt FROM sessions
+      UNION ALL SELECT 'commits', COUNT(*) FROM commits
+      UNION ALL SELECT 'commit_files', COUNT(*) FROM commit_files
+      UNION ALL SELECT 'issues', COUNT(*) FROM issues
+      UNION ALL SELECT 'decisions', COUNT(*) FROM decisions
+      UNION ALL SELECT 'knowledge', COUNT(*) FROM knowledge;
+    "
+    echo ""
+    dolt log --oneline | head -5
+    ;;
+  shell|sql)
+    dolt sql
+    ;;
+  drain)
+    # Manually drain any queued push
+    if [[ -f "$PUSH_PENDING_MARKER" ]]; then
+      echo "Draining queued push..."
+      _fort_memory_push "drain"
+    else
+      echo "No pending push"
+    fi
+    ;;
+  *)
+    echo "Usage: fort-memory [retro|query|save|flush|recall|knowledge|sync|drain|status|shell]"
+    echo ""
+    echo "  retro [days]     Run retrospective (default: 7 days)"
+    echo "  query \"SQL\"      Run a SQL query"
+    echo "  save <topic> <fact> [--source S] [--confidence C] [--no-commit]"
+    echo "                   Save a fact to the knowledge base"
+    echo "  flush            Commit any pending --no-commit saves + push"
+    echo "  recall <topic>   Recall facts matching a topic"
+    echo "  knowledge        List all topics with fact counts"
+    echo "  latest           Print most recent knowledge entry date"
+    echo "  sync             Push to remote"
+    echo "  drain            Retry any queued push (offline recovery)"
+    echo "  status           Database summary"
+    echo "  shell            Interactive SQL (default)"
+    ;;
+esac

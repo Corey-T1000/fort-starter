@@ -1,0 +1,199 @@
+#!/bin/bash
+# Fort Status - Show status of all Fort components
+#
+# Local:  Sandbox VM, Beads
+# Remote: Remote services (Fort Mail, ntfy, etc.)
+#
+# Usage: fort-status [--quiet] [--json]
+
+# Source Fort environment
+_FORT_ENV="${FORT_ROOT:-$HOME/claudes-fort}/.fort-env"
+[ -f "$_FORT_ENV" ] && . "$_FORT_ENV"
+FORT_ROOT="${FORT_ROOT:-$HOME/claudes-fort}"
+
+FORT_DIR="$FORT_ROOT"
+SANDBOX_VM="fort-sandbox"
+REMOTE_HOST="${REMOTE_HOST:-${FORT_REMOTE_IP:-127.0.0.1}}"
+MAIL_PORT="${FORT_MAIL_PORT:-8080}"
+MAIL_URL="http://${REMOTE_HOST}:${MAIL_PORT}"
+
+# Colors
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m'
+
+QUIET=false
+JSON=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --quiet|-q)
+            QUIET=true
+            shift
+            ;;
+        --json)
+            JSON=true
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: fort-status [--quiet] [--json]"
+            exit 0
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
+# Check sandbox
+SANDBOX_STATUS="stopped"
+SANDBOX_IP=""
+if command -v orb &> /dev/null; then
+    if orb list 2>/dev/null | grep -q "$SANDBOX_VM.*running"; then
+        SANDBOX_STATUS="running"
+        SANDBOX_IP=$(orb list 2>/dev/null | grep "$SANDBOX_VM" | awk '{print $NF}')
+    elif orb list 2>/dev/null | grep -q "$SANDBOX_VM"; then
+        SANDBOX_STATUS="stopped"
+    else
+        SANDBOX_STATUS="not-found"
+    fi
+else
+    SANDBOX_STATUS="unavailable"
+fi
+
+# Check Remote reachability
+REMOTE_STATUS="unreachable"
+if ssh -o ConnectTimeout=3 -o BatchMode=yes ${FORT_REMOTE_HOST:-remote} 'true' &>/dev/null; then
+    REMOTE_STATUS="online"
+fi
+
+# Check Fort Mail (on Remote)
+MAIL_STATUS="stopped"
+MAIL_AGENTS=0
+MAIL_THREADS=0
+if curl -s --connect-timeout 3 "${MAIL_URL}/api/status" &>/dev/null; then
+    MAIL_STATUS="running"
+    MAIL_DATA=$(curl -s "${MAIL_URL}/api/status" 2>/dev/null)
+    MAIL_AGENTS=$(echo "$MAIL_DATA" | grep -o '"active":[0-9]*' | head -1 | cut -d: -f2)
+    MAIL_THREADS=$(echo "$MAIL_DATA" | grep -o '"total":[0-9]*' | tail -1 | cut -d: -f2)
+fi
+
+# Check ntfy (on Remote)
+NTFY_STATUS="stopped"
+if curl -s --connect-timeout 3 "http://${REMOTE_HOST}:9090/v1/health" &>/dev/null; then
+    NTFY_STATUS="running"
+fi
+
+# Check Beads
+BEADS_STATUS="unavailable"
+BEADS_ISSUES=0
+if command -v bd &> /dev/null; then
+    BEADS_STATUS="available"
+    BEADS_ISSUES=$(bd list 2>/dev/null | wc -l | tr -d ' ')
+fi
+
+if $JSON; then
+    cat <<EOF
+{
+  "local": {
+    "sandbox": {
+      "status": "$SANDBOX_STATUS",
+      "ip": "$SANDBOX_IP"
+    },
+    "beads": {
+      "status": "$BEADS_STATUS",
+      "issues": $BEADS_ISSUES
+    }
+  },
+  "${FORT_REMOTE_HOST:-remote}": {
+    "status": "$REMOTE_STATUS",
+    "host": "$REMOTE_HOST",
+    "mail": {
+      "status": "$MAIL_STATUS",
+      "port": $MAIL_PORT,
+      "agents": $MAIL_AGENTS,
+      "threads": $MAIL_THREADS
+    },
+    "ntfy": {
+      "status": "$NTFY_STATUS"
+    }
+  }
+}
+EOF
+    exit 0
+fi
+
+status_icon() {
+    case $1 in
+        running|available|online) echo -e "${GREEN}●${NC}" ;;
+        stopped) echo -e "${RED}●${NC}" ;;
+        *) echo -e "${YELLOW}●${NC}" ;;
+    esac
+}
+
+if $QUIET; then
+    echo -e "  $(status_icon $SANDBOX_STATUS) Sandbox: $SANDBOX_STATUS"
+    echo -e "  $(status_icon $REMOTE_STATUS) Remote: $REMOTE_STATUS"
+    echo -e "  $(status_icon $MAIL_STATUS) Fort Mail: $MAIL_STATUS"
+    echo -e "  $(status_icon $BEADS_STATUS) Beads: $BEADS_STATUS"
+    exit 0
+fi
+
+echo ""
+echo -e "  ${BOLD}Fort Stack Status${NC}"
+echo "  ─────────────────────────────────────"
+
+# Local section
+echo -e "  ${DIM}LOCAL${NC}"
+echo ""
+
+echo -e "  $(status_icon $SANDBOX_STATUS) ${BOLD}Sandbox${NC} (Orbstack VM)"
+if [ "$SANDBOX_STATUS" = "running" ]; then
+    echo "    VM: $SANDBOX_VM  IP: $SANDBOX_IP"
+elif [ "$SANDBOX_STATUS" = "not-found" ]; then
+    echo "    Not configured (run: orb create ubuntu $SANDBOX_VM)"
+else
+    echo "    Status: $SANDBOX_STATUS"
+fi
+echo ""
+
+echo -e "  $(status_icon $BEADS_STATUS) ${BOLD}Beads${NC}"
+if [ "$BEADS_STATUS" = "available" ]; then
+    echo "    Issues: $BEADS_ISSUES tracked"
+else
+    echo "    Status: $BEADS_STATUS"
+fi
+echo ""
+
+# Remote section
+echo -e "  ${DIM}SANDTRAP ($REMOTE_HOST)${NC}"
+echo ""
+
+if [ "$REMOTE_STATUS" = "unreachable" ]; then
+    echo -e "  $(status_icon $REMOTE_STATUS) ${BOLD}Server${NC}: unreachable (offline or not on network)"
+    echo ""
+else
+    echo -e "  $(status_icon $MAIL_STATUS) ${BOLD}Fort Mail${NC}"
+    if [ "$MAIL_STATUS" = "running" ]; then
+        echo "    URL: $MAIL_URL"
+        echo "    Agents: ${MAIL_AGENTS:-0} active  Threads: ${MAIL_THREADS:-0}"
+    else
+        echo "    Status: $MAIL_STATUS"
+    fi
+    echo ""
+
+    echo -e "  $(status_icon $NTFY_STATUS) ${BOLD}ntfy${NC}"
+    if [ "$NTFY_STATUS" = "running" ]; then
+        echo "    URL: http://${REMOTE_HOST}:9090"
+    else
+        echo "    Status: $NTFY_STATUS"
+    fi
+    echo ""
+fi
+
+echo "  ─────────────────────────────────────"
+echo ""

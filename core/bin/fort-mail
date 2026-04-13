@@ -1,0 +1,33 @@
+#!/bin/bash
+# Start Fort Mail server
+
+# Source Fort environment
+_FORT_ENV="${FORT_ROOT:-$HOME/claudes-fort}/.fort-env"
+[ -f "$_FORT_ENV" ] && . "$_FORT_ENV"
+FORT_ROOT="${FORT_ROOT:-$HOME/claudes-fort}"
+
+FORT_DIR="$FORT_ROOT"
+MAIL_SERVICE="${FORT_DIR}/services/fort-mail"
+MAIL_DATA="${FORT_DIR}/mail"
+PORT="${FORT_MAIL_PORT:-8080}"
+
+cd "$MAIL_SERVICE"
+
+# Create venv if needed
+if [ ! -d ".venv" ]; then
+    echo "Creating virtual environment..."
+    python3 -m venv .venv
+    source .venv/bin/activate
+    pip install -r requirements.txt
+else
+    source .venv/bin/activate
+fi
+
+export FORT_MAIL_DIR="$MAIL_DATA"
+export FORT_MAIL_PORT="$PORT"
+
+echo "Starting Fort Mail on http://localhost:$PORT"
+echo "Mail data: $MAIL_DATA"
+echo ""
+
+python -m uvicorn src.server:app --host 0.0.0.0 --port "$PORT" --reload

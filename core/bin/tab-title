@@ -1,0 +1,87 @@
+#!/bin/bash
+# Set Ghostty tab title from inside Claude Code (or any process).
+# Discovers the parent TTY by walking the process tree.
+#
+# Usage:
+#   tab-title "fort:my-project"     — set base title (persists as state)
+#   tab-title --status working      — 🔵 prefix (Claude is processing)
+#   tab-title --status blocked      — 🔴 prefix (needs attention)
+#   tab-title --status done         — 🟢 prefix (finished)
+#   tab-title --status idle         — ⚪ prefix (idle, waiting)
+#   tab-title --status clear        — remove prefix, show base title
+#   tab-title                       — print current state
+
+# Find the TTY by walking up the process tree
+find_tty() {
+  local pid=$$
+  for _ in $(seq 1 10); do
+    local ppid tty_dev
+    ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+    tty_dev=$(ps -o tty= -p "$ppid" 2>/dev/null | tr -d ' ')
+    if [ -n "$tty_dev" ] && [ "$tty_dev" != "??" ]; then
+      echo "/dev/$tty_dev"
+      return 0
+    fi
+    pid=$ppid
+    [ -z "$ppid" ] && break
+  done
+  return 1
+}
+
+tty_path=$(find_tty)
+if [ -z "$tty_path" ]; then
+  echo "error: could not find parent TTY" >&2
+  exit 1
+fi
+
+# State file keyed by TTY device (e.g., /tmp/ghostty-tab.ttys003)
+tty_id=$(basename "$tty_path")
+state_file="/tmp/ghostty-tab.$tty_id"
+
+set_title() {
+  printf '\e]0;%s\a' "$1" > "$tty_path"
+}
+
+# Read base title from state (default: "fort")
+get_base() {
+  if [ -f "$state_file" ]; then
+    cat "$state_file"
+  else
+    echo "fort"
+  fi
+}
+
+# --status mode: prepend emoji to base title
+# Also persists current status for smart transitions (e.g., PostToolUse only clears blocked)
+if [ "$1" = "--status" ]; then
+  base=$(get_base)
+  status_file="/tmp/ghostty-tab-status.$tty_id"
+
+  case "$2" in
+    working)     set_title "🔵 $base" ;;
+    blocked)     set_title "🔴 $base" ;;
+    interrupted) set_title "🟡 $base" ;;
+    done)
+      set_title "🟢 $base"
+      # ✅ persists until next prompt flips back to 🌀
+      pkill -f "ghostty-tab-fade.$tty_id" 2>/dev/null
+      ;;
+    idle)        set_title "⚪ $base" ;;
+    clear)       set_title "$base" ;;
+    *)           echo "Unknown status: $2 (use working|blocked|done|idle|interrupted|clear)" >&2; exit 1 ;;
+  esac
+
+  echo "$2" > "$status_file"
+  exit 0
+fi
+
+# No args: print state
+if [ -z "$1" ]; then
+  echo "TTY:   $tty_path"
+  echo "Base:  $(get_base)"
+  exit 0
+fi
+
+# Set base title and persist it
+echo "$1" > "$state_file"
+set_title "$1"

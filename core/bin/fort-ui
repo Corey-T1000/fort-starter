@@ -1,0 +1,14 @@
+#!/bin/bash
+# Run FortUI TUI inside the Orbstack sandbox
+
+set -e
+
+# Build if requested
+if [[ "$1" == "--build" ]] || [[ "$1" == "-b" ]]; then
+    echo "Building FortUI..."
+    orb -m fort-sandbox bash -c "cd ~/projects/fort-ui && go build -o fortui ./cmd/fortui/"
+    shift
+fi
+
+# Use script to allocate a PTY for the TUI
+exec script -q /dev/null orb -m fort-sandbox bash -c "cd ~/projects/fort-ui && ./fortui"

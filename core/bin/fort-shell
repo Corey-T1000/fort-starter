@@ -1,0 +1,92 @@
+#!/bin/bash
+# Fort Shell - Interactive shell in the sandbox VM
+#
+# Usage: fort-shell [directory]
+#        fort-shell              # Opens shell in ~/projects
+#        fort-shell workspace    # Opens shell in ~/sandbox/workspace
+#        fort-shell my-app       # Opens shell in ~/projects/my-app
+
+set -e
+
+SANDBOX_VM="fort-sandbox"
+
+# Colors
+BLUE='\033[0;34m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+log() { echo -e "${BLUE}[fort-shell]${NC} $1"; }
+
+show_help() {
+    echo "Usage: fort-shell [LOCATION]"
+    echo ""
+    echo "Open a shell in the sandboxed VM."
+    echo ""
+    echo "Locations:"
+    echo "  (none)          ~/projects (default)"
+    echo "  projects, proj  ~/projects"
+    echo "  workspace, ws   ~/sandbox/workspace (ephemeral)"
+    echo "  sandbox         ~/sandbox"
+    echo "  inbox           ~/sandbox/inbox"
+    echo "  outbox          ~/sandbox/outbox"
+    echo "  <name>          ~/projects/<name>"
+    echo ""
+    echo "Examples:"
+    echo "  fort-shell              # Shell in ~/projects"
+    echo "  fort-shell my-app       # Shell in ~/projects/my-app"
+    echo "  fort-shell ws           # Shell in ephemeral workspace"
+    exit 0
+}
+
+# Parse args
+if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+    show_help
+fi
+
+# Check if VM is running
+if ! orb list 2>/dev/null | grep -q "$SANDBOX_VM.*running"; then
+    log "Starting sandbox VM..."
+    orb start "$SANDBOX_VM"
+    sleep 2
+fi
+
+# Determine target directory
+TARGET_DIR="${1:-projects}"
+case "$TARGET_DIR" in
+    workspace|ws)
+        TARGET_DIR="sandbox/workspace"
+        ;;
+    projects|proj)
+        TARGET_DIR="projects"
+        ;;
+    sandbox)
+        TARGET_DIR="sandbox"
+        ;;
+    inbox)
+        TARGET_DIR="sandbox/inbox"
+        ;;
+    outbox)
+        TARGET_DIR="sandbox/outbox"
+        ;;
+    /*)
+        # Absolute path - use as-is
+        ;;
+    *)
+        # Treat as project name
+        TARGET_DIR="projects/$TARGET_DIR"
+        ;;
+esac
+
+# Ensure directory exists
+orb -m "$SANDBOX_VM" bash -c "mkdir -p ~/$TARGET_DIR"
+
+# Show info
+echo ""
+echo -e "  ${BOLD}Fort Shell${NC} - Sandbox Access"
+echo "  ─────────────────────────────────────"
+IP=$(orb list 2>/dev/null | grep "$SANDBOX_VM" | awk '{print $NF}')
+log "VM: $SANDBOX_VM ($IP)"
+log "Dir: ~/$TARGET_DIR"
+echo ""
+
+exec orb -m "$SANDBOX_VM" bash -c "cd ~/$TARGET_DIR && exec bash"

@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# Fort Security Scanner
+# Wrapper around Cisco MCP Scanner for auditing MCP server configs
+#
+# Usage:
+#   fort-scan                    # Scan all known configs (YARA only, fast)
+#   fort-scan --deep             # YARA + LLM analysis via Ollama
+#   fort-scan --config FILE      # Scan specific .mcp.json
+#   fort-scan --behavioral PATH  # Analyze MCP server source code
+#   fort-scan --help             # Show this help
+
+set -eo pipefail
+
+# Source Fort environment
+_FORT_ENV="${FORT_ROOT:-$HOME/claudes-fort}/.fort-env"
+[ -f "$_FORT_ENV" ] && . "$_FORT_ENV"
+FORT_ROOT="${FORT_ROOT:-$HOME/claudes-fort}"
+
+VENV_DIR="${FORT_ROOT}/.venv/mcp-scanner"
+SCANNER="mcp-scanner"
+
+# Ollama config for LLM analysis (runs on remote server)
+OLLAMA_HOST="${OLLAMA_HOST:-${FORT_REMOTE_IP:-127.0.0.1}}"
+OLLAMA_PORT="${OLLAMA_PORT:-11434}"
+OLLAMA_MODEL="${OLLAMA_MODEL:-ollama/mistral}"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+usage() {
+    echo "Fort Security Scanner"
+    echo ""
+    echo "Usage:"
+    echo "  fort-scan                     Scan all known MCP configs (YARA, fast)"
+    echo "  fort-scan --deep              YARA + LLM analysis via Ollama on remote server"
+    echo "  fort-scan --config FILE       Scan a specific .mcp.json file"
+    echo "  fort-scan --behavioral PATH   Analyze MCP server source code"
+    echo "  fort-scan --all               Run all analyzers against all configs"
+    echo "  fort-scan --help              Show this help"
+    echo ""
+    echo "Environment:"
+    echo "  OLLAMA_HOST    Ollama server host (default: \$FORT_REMOTE_IP or 127.0.0.1)"
+    echo "  OLLAMA_MODEL   LLM model for analysis (default: ollama/mistral)"
+}
+
+check_venv() {
+    if [ ! -d "$VENV_DIR" ]; then
+        echo -e "${YELLOW}MCP Scanner not installed. Installing...${NC}"
+        uv venv -p python3.13 "$VENV_DIR"
+        source "$VENV_DIR/bin/activate"
+        uv pip install cisco-ai-mcp-scanner
+        echo -e "${GREEN}Installed.${NC}"
+    else
+        source "$VENV_DIR/bin/activate"
+    fi
+}
+
+scan_known() {
+    local analyzers="${1:-yara}"
+    local extra_args=()
+
+    if [[ "$analyzers" == *"llm"* ]]; then
+        extra_args+=(--llm-api-key "ollama")
+        export MCP_SCANNER_LLM_ENDPOINT="http://${OLLAMA_HOST}:${OLLAMA_PORT}"
+        export MCP_SCANNER_LLM_MODEL="$OLLAMA_MODEL"
+    fi
+
+    echo -e "${GREEN}Scanning known MCP configs (analyzers: ${analyzers})...${NC}"
+    $SCANNER --analyzers "$analyzers" --format summary --stats "${extra_args[@]}" known-configs
+}
+
+scan_config() {
+    local config_path="$1"
+    local analyzers="${2:-yara}"
+
+    if [ ! -f "$config_path" ]; then
+        echo -e "${RED}Config file not found: ${config_path}${NC}"
+        exit 1
+    fi
+
+    echo -e "${GREEN}Scanning ${config_path} (analyzers: ${analyzers})...${NC}"
+    $SCANNER --analyzers "$analyzers" --format detailed --stats config --config-path "$config_path"
+}
+
+scan_behavioral() {
+    local source_path="$1"
+
+    if [ ! -e "$source_path" ]; then
+        echo -e "${RED}Source path not found: ${source_path}${NC}"
+        exit 1
+    fi
+
+    export MCP_SCANNER_LLM_API_KEY="ollama"
+    export MCP_SCANNER_LLM_ENDPOINT="http://${OLLAMA_HOST}:${OLLAMA_PORT}"
+    export MCP_SCANNER_LLM_MODEL="$OLLAMA_MODEL"
+
+    echo -e "${GREEN}Behavioral analysis of ${source_path}...${NC}"
+    $SCANNER --analyzers behavioral --format detailed behavioral "$source_path"
+}
+
+# Parse args
+check_venv
+
+case "${1:-}" in
+    --help|-h)
+        usage
+        ;;
+    --deep)
+        scan_known "yara,llm"
+        ;;
+    --config)
+        shift
+        scan_config "${1:?'Config path required'}" "${2:-yara}"
+        ;;
+    --behavioral)
+        shift
+        scan_behavioral "${1:?'Source path required'}"
+        ;;
+    --all)
+        scan_known "yara,llm"
+        echo ""
+        echo -e "${GREEN}Scanning project .mcp.json...${NC}"
+        scan_config "${FORT_ROOT}/.mcp.json" "yara"
+        ;;
+    "")
+        scan_known "yara"
+        ;;
+    *)
+        echo -e "${RED}Unknown option: $1${NC}"
+        usage
+        exit 1
+        ;;
+esac

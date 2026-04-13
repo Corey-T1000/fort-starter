@@ -1,0 +1,103 @@
+#!/bin/bash
+# Fort Sandbox - Run Claude tasks in an isolated Orbstack VM
+#
+# Usage: fort-sandbox "Your task description here"
+#        fort-sandbox --file task.md
+
+set -e
+
+# Source Fort environment
+_FORT_ENV="${FORT_ROOT:-$HOME/claudes-fort}/.fort-env"
+[ -f "$_FORT_ENV" ] && . "$_FORT_ENV"
+FORT_ROOT="${FORT_ROOT:-$HOME/claudes-fort}"
+
+SANDBOX_VM="fort-sandbox"
+SANDBOX_DIR="/home/${FORT_USER:-$(whoami)}/sandbox"
+HOST_SANDBOX="$FORT_ROOT/sandbox"
+
+# Colors
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+log() { echo -e "${BLUE}[fort-sandbox]${NC} $1"; }
+success() { echo -e "${GREEN}[fort-sandbox]${NC} $1"; }
+warn() { echo -e "${YELLOW}[fort-sandbox]${NC} $1"; }
+
+# Check if VM is running
+if ! orb list | grep -q "$SANDBOX_VM.*running"; then
+    log "Starting sandbox VM..."
+    orb start "$SANDBOX_VM"
+    sleep 2
+fi
+
+# Parse arguments
+TASK=""
+TASK_FILE=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --file|-f)
+            TASK_FILE="$2"
+            shift 2
+            ;;
+        *)
+            TASK="$1"
+            shift
+            ;;
+    esac
+done
+
+# Create task file if inline task provided
+if [[ -n "$TASK" ]]; then
+    TASK_FILE="$HOST_SANDBOX/inbox/task-$(date +%s).md"
+    echo "# Task" > "$TASK_FILE"
+    echo "" >> "$TASK_FILE"
+    echo "$TASK" >> "$TASK_FILE"
+    echo "" >> "$TASK_FILE"
+    echo "## Instructions" >> "$TASK_FILE"
+    echo "- Work in ~/sandbox/workspace/" >> "$TASK_FILE"
+    echo "- Save all outputs to ~/sandbox/outbox/" >> "$TASK_FILE"
+    echo "- When complete, create ~/sandbox/outbox/DONE.md with a summary" >> "$TASK_FILE"
+fi
+
+if [[ -z "$TASK_FILE" ]]; then
+    echo "Usage: fort-sandbox \"Your task\" or fort-sandbox --file task.md"
+    exit 1
+fi
+
+TASK_NAME=$(basename "$TASK_FILE" .md)
+log "Running task: $TASK_NAME"
+
+# Copy task to VM inbox (Orbstack auto-mounts home)
+VM_TASK="$SANDBOX_DIR/inbox/$TASK_NAME.md"
+orb -m "$SANDBOX_VM" cp "$TASK_FILE" "$VM_TASK" 2>/dev/null || \
+    cat "$TASK_FILE" | orb -m "$SANDBOX_VM" bash -c "cat > \"$VM_TASK\""
+
+# Clear previous workspace
+orb -m "$SANDBOX_VM" bash -c "rm -rf \"$SANDBOX_DIR/workspace/\"* \"$SANDBOX_DIR/outbox/\"*"
+
+# Run Claude in sandbox
+log "Starting Claude in sandbox..."
+orb -m "$SANDBOX_VM" bash -c "cd \"$SANDBOX_DIR/workspace\" && claude --print 'Read $VM_TASK and complete the task. Save outputs to ~/sandbox/outbox/'"
+
+# Check for results
+if orb -m "$SANDBOX_VM" test -f "$SANDBOX_DIR/outbox/DONE.md"; then
+    success "Task completed!"
+    echo ""
+    echo "=== Results ==="
+    orb -m "$SANDBOX_VM" cat "$SANDBOX_DIR/outbox/DONE.md"
+    echo ""
+
+    # Copy results back
+    log "Copying results to host..."
+    mkdir -p "$HOST_SANDBOX/outbox/$TASK_NAME"
+    orb -m "$SANDBOX_VM" bash -c "ls \"$SANDBOX_DIR/outbox/\"" | while read -r f; do
+        orb -m "$SANDBOX_VM" cat "$SANDBOX_DIR/outbox/$f" > "$HOST_SANDBOX/outbox/$TASK_NAME/$f"
+    done
+    success "Results saved to: $HOST_SANDBOX/outbox/$TASK_NAME/"
+else
+    warn "Task may not have completed. Check sandbox manually:"
+    echo "  orb -m $SANDBOX_VM ls $SANDBOX_DIR/outbox/"
+fi

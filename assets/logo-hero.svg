@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 96" width="440" height="96">
+  <!--
+    fort-starter Hero Logo — Charcoal + Teal Flag
+    5 pieces = 5 layers: Config, Hooks, Memory, Skills, CLI
+    Darkest at foundation, lightest at top
+  -->
+  <g id="icon" transform="translate(8, 0)">
+    <!-- Layer 5: CLI (top, lightest) -->
+    <rect x="22" y="46" width="48" height="10" rx="1" fill="#555555" transform="rotate(0.4 46 51)"/>
+    <!-- Layer 4/3: Skills + Memory (middle, split) -->
+    <rect x="20" y="58" width="20" height="10" rx="1" fill="#3D3D3D" transform="rotate(-0.3 30 63)"/>
+    <rect x="52" y="58" width="20" height="10" rx="1" fill="#333333" transform="rotate(-0.3 62 63)"/>
+    <!-- Layer 2/1: Hooks + Config (bottom, darkest) -->
+    <rect x="24" y="70" width="17" height="10" rx="1" fill="#252525" transform="rotate(0.5 32 75)"/>
+    <rect x="53" y="70" width="15" height="10" rx="1" fill="#1A1A1A" transform="rotate(0.5 60 75)"/>
+    <!-- Flag -->
+    <line x1="56" y1="22" x2="56" y2="46" stroke="#1A1A1A" stroke-width="1.5"/>
+    <polygon points="57,23 71,28 57,34" fill="#2A9D8F"/>
+  </g>
+  <text x="116" y="62" fill="#1A1A1A" font-size="34" font-family="'SF Mono','Menlo','Consolas',monospace" font-weight="600" letter-spacing="-1">fort-starter</text>
+  <text x="117" y="80" fill="#888" font-size="12" font-family="'SF Mono','Menlo','Consolas',monospace" font-weight="400" opacity="0.6">persistent AI workspaces</text>
+</svg>

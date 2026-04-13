@@ -1,0 +1,433 @@
+#!/bin/bash
+# Daily Receipt — synthesize today's Fort knowledge pipeline activity and print a thermal summary.
+#
+# Data sources (priority order):
+#   1. Distill queue (.jsonl) — structured learnings from session distillation
+#   2. Memory file git changes — what memory files were updated today
+#   3. knowledge base notes — Obsidian notes created/modified today
+#   4. Git commits — what shipped across all repos
+#   5. Beads closed — issue tracker completions
+#
+# Usage:
+#   daily-receipt            — gather + print
+#   daily-receipt --dry-run  — gather + print JSON, skip printing
+
+set -euo pipefail
+
+# Source Fort environment
+_FORT_ENV="${FORT_ROOT:-$HOME/claudes-fort}/.fort-env"
+[ -f "$_FORT_ENV" ] && . "$_FORT_ENV"
+FORT_ROOT="${FORT_ROOT:-$HOME/claudes-fort}"
+
+FORT_DIR="$FORT_ROOT"
+PRINTER_URL="http://${FORT_PRINTER_IP:-127.0.0.1}:9101/print/daily-summary"
+DRY_RUN=false
+FORT_USER="${FORT_USER:-$(whoami)}"
+DISTILL_QUEUE="$HOME/.claude/projects/-Users-${FORT_USER}-$(basename "$FORT_ROOT")/memory/.distill-queue"
+KB_DIR="${FORT_KNOWLEDGE_BASE:-$HOME/knowledge-base}"
+
+# Additional repos to scan for daily activity
+EXTRA_REPOS=(
+  # Add additional repos to scan: "$FORT_ROOT/projects/my-project:label"
+)
+
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) DRY_RUN=true ;;
+    -h|--help)
+      echo "Usage: daily-receipt [--dry-run]"
+      echo "  --dry-run  Print JSON payload without sending to printer"
+      exit 0
+      ;;
+  esac
+done
+
+# --- Date ---
+DATE=$(date "+%B %-d, %Y")
+TODAY=$(date "+%Y-%m-%d")
+TODAY_COMPACT=$(date "+%Y%m%d")
+
+# --- Commits since 6am today ---
+SINCE="$(date -v6H -v0M -v0S "+%Y-%m-%dT%H:%M:%S" 2>/dev/null || date -d "today 06:00:00" "+%Y-%m-%dT%H:%M:%S")"
+
+# ============================================================
+# 1. DISTILL QUEUE — structured learnings
+# ============================================================
+# Gather from both unprocessed (root) and processed (.processed/) queue files for today
+LEARNINGS_JSON=$(python3 << 'PYEOF'
+import json, glob, os, sys
+
+queue_dir = os.environ.get("DISTILL_QUEUE", "")
+today_compact = os.environ.get("TODAY_COMPACT", "")
+today = os.environ.get("TODAY", "")
+
+# Collect all JSONL files for today from both locations
+jsonl_files = []
+for d in [queue_dir, os.path.join(queue_dir, ".processed")]:
+    if os.path.isdir(d):
+        jsonl_files.extend(glob.glob(os.path.join(d, f"{today_compact}*.jsonl")))
+
+# Parse and deduplicate facts by topic
+topic_facts = {}  # topic -> list of facts (deduped)
+memory_files = set()
+bigbrain_topics = set()
+
+def _word_set(text):
+    """Extract lowercase word tokens for similarity comparison."""
+    import re
+    return set(re.findall(r'[a-z0-9]+', text.lower()))
+
+def _is_duplicate(new_fact, existing_facts):
+    """Check if new_fact is a near-duplicate of any existing fact."""
+    new_words = _word_set(new_fact)
+    if not new_words:
+        return False
+    for existing in existing_facts:
+        existing_words = _word_set(existing)
+        if not existing_words:
+            continue
+        overlap = len(new_words & existing_words)
+        union = len(new_words | existing_words)
+        if union > 0 and overlap / union > 0.45:
+            return True
+    return False
+
+for fpath in jsonl_files:
+    try:
+        with open(fpath) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                entry = json.loads(line)
+                if entry.get("date", "") != today:
+                    continue
+                for fact in entry.get("facts", []):
+                    topic = fact.get("topic", "unknown")
+                    text = fact.get("fact", "")
+                    if text:
+                        existing = topic_facts.setdefault(topic, [])
+                        if not _is_duplicate(text, existing):
+                            existing.append(text)
+                for mf in entry.get("memory_files_updated", []):
+                    memory_files.add(mf)
+                for bt in entry.get("bigbrain_topics", []):
+                    bigbrain_topics.add(bt)
+    except Exception:
+        continue
+
+# Build learnings grouped by friendly topic name
+TOPIC_NAMES = {
+    "50-infrastructure": "Infrastructure",
+    "51-fort-cli": "Fort CLI",
+    "52-automation": "Automation",
+    "53-claude-code": "Claude Code",
+    "54-fort-memory": "Fort Memory",
+    "55-notifications": "Notifications",
+    "56-fort-services": "Fort Services",
+    "57-data-pipelines": "Pipelines",
+    "60-example": "Example Project",
+    # Add your project topic names here
+}
+
+learnings = []
+for topic_key in sorted(topic_facts.keys()):
+    name = TOPIC_NAMES.get(topic_key, topic_key)
+    facts_list = topic_facts[topic_key]  # already deduped, preserve insertion order
+    learnings.append({"topic": name, "facts": facts_list})
+
+result = {
+    "learnings": learnings,
+    "facts_captured": sum(len(v) for v in topic_facts.values()),  # lists now, len() still works
+    "memory_files_updated": sorted(memory_files),
+    "bigbrain_topics_from_distill": sorted(bigbrain_topics),
+}
+print(json.dumps(result))
+PYEOF
+)
+
+# ============================================================
+# 2. KB NOTES — Obsidian notes created/modified today
+# ============================================================
+KB_JSON="[]"
+if [[ -d "$KB_DIR" ]]; then
+  # Find .md files modified today in Fort-relevant JD areas
+  KB_JSON=$(find \
+    "$KB_DIR/50 Fort Infrastructure" \
+    "$KB_DIR/60 Fort Projects" \
+    -name "*.md" -newer "$FORT_DIR/bin/daily-receipt" -mtime -1 2>/dev/null | python3 -c "
+import sys, json, os
+from datetime import date
+
+today = '$TODAY'
+notes = []
+for line in sys.stdin:
+    fpath = line.strip()
+    if not fpath:
+        continue
+    basename = os.path.basename(fpath)
+    name = os.path.splitext(basename)[0]
+    notes.append(name)
+notes.sort()
+print(json.dumps(notes))
+" 2>/dev/null || echo "[]")
+fi
+
+# Also try mtime-based check as fallback
+if [[ "$KB_JSON" == "[]" && -d "$KB_DIR" ]]; then
+  KB_JSON=$(find \
+    "$KB_DIR/50 Fort Infrastructure" \
+    "$KB_DIR/60 Fort Projects" \
+    -name "*.md" -newermt "$TODAY 00:00:00" 2>/dev/null | python3 -c "
+import sys, json, os
+
+notes = []
+for line in sys.stdin:
+    fpath = line.strip()
+    if not fpath:
+        continue
+    basename = os.path.basename(fpath)
+    name = os.path.splitext(basename)[0]
+    notes.append(name)
+notes.sort()
+print(json.dumps(notes))
+" 2>/dev/null || echo "[]")
+fi
+
+# ============================================================
+# 3. GIT COMMITS — what shipped across all repos
+# ============================================================
+gather_commits() {
+  local repo_dir="$1"
+  local label="$2"
+  cd "$repo_dir" 2>/dev/null || return
+  git log --since="$SINCE" --format="%h %s" --all --no-merges 2>/dev/null | python3 -c "
+import sys, json
+commits = []
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    parts = line.split(' ', 1)
+    short_hash = parts[0]
+    msg = parts[1] if len(parts) > 1 else ''
+    commits.append({'message': msg, 'short_hash': short_hash, 'repo': '$label'})
+print(json.dumps(commits))
+" 2>/dev/null || echo "[]"
+}
+
+count_files_changed() {
+  local repo_dir="$1"
+  cd "$repo_dir" 2>/dev/null || return
+  local oldest
+  oldest=$(git log --since="$SINCE" --format=%H --all --no-merges 2>/dev/null | tail -1)
+  if [[ -n "$oldest" ]]; then
+    git diff --stat "${oldest}^..HEAD" 2>/dev/null | tail -1 | grep -oE '[0-9]+ file' | grep -oE '[0-9]+' || echo "0"
+  else
+    echo "0"
+  fi
+}
+
+cd "$FORT_DIR"
+FORT_COMMITS=$(gather_commits "$FORT_DIR" "fort")
+
+ALL_EXTRA_COMMITS="[]"
+EXTRA_PROJECTS=""
+EXTRA_FILES=0
+for entry in "${EXTRA_REPOS[@]}"; do
+  repo_path="${entry%%:*}"
+  repo_label="${entry##*:}"
+  if [[ -d "$repo_path/.git" ]]; then
+    repo_commits=$(gather_commits "$repo_path" "$repo_label")
+    repo_count=$(echo "$repo_commits" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+    if [[ "$repo_count" -gt 0 ]]; then
+      ALL_EXTRA_COMMITS=$(python3 -c "
+import json
+a = json.loads('$ALL_EXTRA_COMMITS')
+b = json.loads('''$repo_commits''')
+print(json.dumps(a + b))
+" 2>/dev/null || echo "$ALL_EXTRA_COMMITS")
+      EXTRA_PROJECTS="${EXTRA_PROJECTS:+$EXTRA_PROJECTS,}$repo_label"
+      repo_files=$(count_files_changed "$repo_path")
+      EXTRA_FILES=$((EXTRA_FILES + ${repo_files:-0}))
+    fi
+  fi
+done
+
+# Merge all commits
+COMMITS_JSON=$(python3 -c "
+import json
+fort = json.loads('''$FORT_COMMITS''')
+extra = json.loads('''$ALL_EXTRA_COMMITS''')
+print(json.dumps(fort + extra))
+" 2>/dev/null || echo "$FORT_COMMITS")
+
+COMMIT_COUNT=$(echo "$COMMITS_JSON" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+
+# --- Files changed (fort repo) ---
+cd "$FORT_DIR"
+FILES_CHANGED=0
+FORT_COMMIT_COUNT=$(echo "$FORT_COMMITS" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+if [[ "$FORT_COMMIT_COUNT" -gt 0 ]]; then
+  OLDEST_HASH=$(git log --since="$SINCE" --format=%H --all --no-merges 2>/dev/null | tail -1)
+  if [[ -n "$OLDEST_HASH" ]]; then
+    FILES_CHANGED=$(git diff --stat "${OLDEST_HASH}^..HEAD" 2>/dev/null | tail -1 | grep -oE '[0-9]+ file' | grep -oE '[0-9]+' || echo "0")
+  fi
+fi
+FILES_CHANGED=$((${FILES_CHANGED:-0} + EXTRA_FILES))
+
+# --- Projects touched ---
+cd "$FORT_DIR"
+PROJECTS_JSON="[]"
+if [[ "$FORT_COMMIT_COUNT" -gt 0 ]]; then
+  OLDEST_HASH=$(git log --since="$SINCE" --format=%H --all --no-merges 2>/dev/null | tail -1)
+  if [[ -n "$OLDEST_HASH" ]]; then
+    PROJECTS_JSON=$(git diff --name-only "${OLDEST_HASH}^..HEAD" 2>/dev/null | python3 -c "
+import sys, json
+
+extra_projects = '$EXTRA_PROJECTS'.split(',') if '$EXTRA_PROJECTS' else []
+projects = set(p for p in extra_projects if p)
+
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    parts = line.split('/')
+    if parts[0] == 'projects' and len(parts) > 1:
+        projects.add(parts[1])
+    elif parts[0] == 'plugins' and len(parts) > 1:
+        projects.add(parts[1])
+    elif parts[0] == 'deploy' and len(parts) > 1:
+        projects.add(parts[1])
+    elif parts[0] == 'bin':
+        projects.add('fort-cli')
+    elif parts[0] == '.claude':
+        projects.add('fort')
+    elif parts[0] in ('notes', 'logs'):
+        projects.add('fort')
+
+print(json.dumps(sorted(projects)))
+" 2>/dev/null || echo "[]")
+  fi
+elif [[ -n "$EXTRA_PROJECTS" ]]; then
+  PROJECTS_JSON=$(python3 -c "
+import json
+projects = [p for p in '$EXTRA_PROJECTS'.split(',') if p]
+print(json.dumps(sorted(projects)))
+" 2>/dev/null || echo "[]")
+fi
+
+# ============================================================
+# 4. BEADS CLOSED TODAY
+# ============================================================
+BEADS_CLOSED_JSON="[]"
+BEADS_CLOSED_COUNT=0
+if command -v bd &>/dev/null; then
+  BEADS_CLOSED_JSON=$(bd list --status=closed 2>/dev/null | python3 -c "
+import sys, json
+
+today = '${TODAY}'
+beads = []
+for line in sys.stdin:
+    line = line.strip()
+    if not line or line.startswith('ID') or line.startswith('--'):
+        continue
+    parts = [p.strip() for p in line.split('|')]
+    if len(parts) >= 2 and today in line:
+        beads.append({'id': parts[0], 'title': parts[1]})
+
+print(json.dumps(beads))
+" 2>/dev/null || echo "[]")
+  BEADS_CLOSED_COUNT=$(echo "$BEADS_CLOSED_JSON" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+fi
+
+# ============================================================
+# 5. SESSION HOURS (from git timestamps across all repos)
+# ============================================================
+SESSION_HOURS=0
+if [[ "$COMMIT_COUNT" -gt 0 ]]; then
+  ALL_TIMESTAMPS=$(cd "$FORT_DIR" && git log --since="$SINCE" --format=%ct --all --no-merges 2>/dev/null || true)
+  for entry in "${EXTRA_REPOS[@]}"; do
+    repo_path="${entry%%:*}"
+    if [[ -d "$repo_path/.git" ]]; then
+      extra_ts=$(cd "$repo_path" && git log --since="$SINCE" --format=%ct --all --no-merges 2>/dev/null || true)
+      if [[ -n "$extra_ts" ]]; then
+        ALL_TIMESTAMPS="${ALL_TIMESTAMPS}
+${extra_ts}"
+      fi
+    fi
+  done
+  SESSION_HOURS=$(echo "$ALL_TIMESTAMPS" | python3 -c "
+import sys
+timestamps = [int(line.strip()) for line in sys.stdin if line.strip()]
+if len(timestamps) >= 2:
+    span = max(timestamps) - min(timestamps)
+    hours = round(span / 3600, 1)
+    print(max(hours, 0.5))
+elif len(timestamps) == 1:
+    print(0.5)
+else:
+    print(0)
+" 2>/dev/null || echo "0")
+fi
+
+# ============================================================
+# BUILD PAYLOAD
+# ============================================================
+FACTS_CAPTURED=$(echo "$LEARNINGS_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('facts_captured', 0))" 2>/dev/null || echo "0")
+
+PAYLOAD=$(python3 << PYEOF
+import json
+
+learnings_data = json.loads('''$LEARNINGS_JSON''')
+
+payload = {
+    "date": "$DATE",
+    "learnings": learnings_data.get("learnings", []),
+    "bigbrain_notes": json.loads('''$KB_JSON'''),
+    "commits": $COMMITS_JSON,
+    "projects_touched": $PROJECTS_JSON,
+    "stats": {
+        "commit_count": $COMMIT_COUNT,
+        "files_changed": ${FILES_CHANGED:-0},
+        "beads_closed": $BEADS_CLOSED_COUNT,
+        "facts_captured": $FACTS_CAPTURED,
+        "session_hours": $SESSION_HOURS
+    },
+    "beads_closed": $BEADS_CLOSED_JSON
+}
+
+print(json.dumps(payload, indent=2))
+PYEOF
+)
+
+if [[ "$DRY_RUN" == "true" ]]; then
+  echo "$PAYLOAD"
+  exit 0
+fi
+
+# --- Skip if nothing happened ---
+HAS_LEARNINGS=$(echo "$PAYLOAD" | python3 -c "import sys,json; d=json.load(sys.stdin); print(1 if d.get('learnings') or d.get('commits') else 0)" 2>/dev/null || echo "0")
+if [[ "$HAS_LEARNINGS" -eq 0 && "$COMMIT_COUNT" -eq 0 ]]; then
+  echo "No activity today — skipping print."
+  exit 0
+fi
+
+# --- Archive to database (optional, configure FORT_REMOTE_HOST) ---
+# If you have a remote database, archive the receipt here
+# ssh ${FORT_REMOTE_HOST} "your-archive-command" 2>/dev/null || echo "Warning: receipt archive failed (non-fatal)" >&2
+
+# --- Send to printer ---
+RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$PRINTER_URL" \
+  -H "Content-Type: application/json" \
+  -d "$PAYLOAD")
+
+HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+BODY=$(echo "$RESPONSE" | sed '$d')
+
+if [[ "$HTTP_CODE" -ge 200 && "$HTTP_CODE" -lt 300 ]]; then
+  echo "Daily receipt printed ($COMMIT_COUNT commits, $FACTS_CAPTURED facts, ${FILES_CHANGED:-0} files)"
+else
+  echo "Print failed (HTTP $HTTP_CODE): $BODY" >&2
+  exit 1
+fi

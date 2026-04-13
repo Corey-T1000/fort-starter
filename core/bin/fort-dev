@@ -1,0 +1,147 @@
+#!/bin/bash
+# Fort Dev - Start an interactive Claude Code session in the sandbox
+#
+# Usage: fort-dev [project-name]
+#        fort-dev                    # Claude in ~/projects
+#        fort-dev my-app             # Claude in ~/projects/my-app
+#        fort-dev --new my-app       # Create new project directory
+#        fort-dev --clone URL        # Clone repo and start Claude in it
+
+set -e
+
+SANDBOX_VM="fort-sandbox"
+PROJECTS_DIR="projects"
+
+# Colors
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+log() { echo -e "${BLUE}[fort-dev]${NC} $1"; }
+success() { echo -e "${GREEN}✓${NC} $1"; }
+warn() { echo -e "${YELLOW}⚠${NC} $1"; }
+
+show_help() {
+    echo "Usage: fort-dev [OPTIONS] [PROJECT]"
+    echo ""
+    echo "Start an interactive Claude session in the sandboxed VM."
+    echo ""
+    echo "Arguments:"
+    echo "  PROJECT              Project name in ~/projects (optional)"
+    echo ""
+    echo "Options:"
+    echo "  --new, -n NAME       Create new project directory"
+    echo "  --clone, -c URL      Clone git repo into projects"
+    echo "  --list, -l           List available projects"
+    echo "  -h, --help           Show this help"
+    echo ""
+    echo "Examples:"
+    echo "  fort-dev                          # Claude in ~/projects"
+    echo "  fort-dev my-app                   # Claude in ~/projects/my-app"
+    echo "  fort-dev --new my-app             # Create and enter my-app"
+    echo "  fort-dev --clone git@github.com:user/repo.git"
+    exit 0
+}
+
+# Check if VM is running
+ensure_vm() {
+    if ! orb list 2>/dev/null | grep -q "$SANDBOX_VM.*running"; then
+        log "Starting sandbox VM..."
+        orb start "$SANDBOX_VM"
+        sleep 2
+    fi
+    # Ensure projects dir exists
+    orb -m "$SANDBOX_VM" bash -c "mkdir -p ~/$PROJECTS_DIR"
+}
+
+# Parse arguments
+CREATE_NEW=false
+CLONE_URL=""
+LIST_ONLY=false
+PROJECT=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --new|-n)
+            CREATE_NEW=true
+            shift
+            ;;
+        --clone|-c)
+            CLONE_URL="$2"
+            shift 2
+            ;;
+        --list|-l)
+            LIST_ONLY=true
+            shift
+            ;;
+        -h|--help)
+            show_help
+            ;;
+        *)
+            PROJECT="$1"
+            shift
+            ;;
+    esac
+done
+
+ensure_vm
+
+# Handle --list
+if $LIST_ONLY; then
+    echo "Projects in sandbox:"
+    orb -m "$SANDBOX_VM" ls -1 ~/$PROJECTS_DIR 2>/dev/null || echo "  (none)"
+    exit 0
+fi
+
+# Handle --clone
+# SECURITY: --config core.hooksPath=/dev/null prevents malicious git hooks from executing
+if [[ -n "$CLONE_URL" ]]; then
+    REPO_NAME=$(basename "$CLONE_URL" .git)
+    log "Cloning $CLONE_URL..."
+    if orb -m "$SANDBOX_VM" bash -c "cd ~/$PROJECTS_DIR && git clone --config core.hooksPath=/dev/null '$CLONE_URL'"; then
+        success "Cloned to ~/projects/$REPO_NAME"
+        PROJECT="$REPO_NAME"
+    else
+        warn "Clone failed"
+        exit 1
+    fi
+fi
+
+# Handle --new
+if $CREATE_NEW && [[ -n "$PROJECT" ]]; then
+    log "Creating new project: $PROJECT"
+    orb -m "$SANDBOX_VM" bash -c "mkdir -p ~/$PROJECTS_DIR/$PROJECT"
+    success "Created ~/projects/$PROJECT"
+fi
+
+# Determine working directory
+if [[ -n "$PROJECT" ]]; then
+    WORK_DIR="$PROJECTS_DIR/$PROJECT"
+
+    # Verify directory exists
+    if ! orb -m "$SANDBOX_VM" bash -c "test -d ~/$WORK_DIR"; then
+        warn "Directory ~/$WORK_DIR doesn't exist"
+        echo ""
+        echo "Available projects:"
+        orb -m "$SANDBOX_VM" ls -1 ~/$PROJECTS_DIR 2>/dev/null || echo "  (none)"
+        echo ""
+        echo "Use --new to create: fort-dev --new $PROJECT"
+        exit 1
+    fi
+else
+    WORK_DIR="$PROJECTS_DIR"
+fi
+
+# Show session info
+echo ""
+echo -e "  ${BOLD}Fort Dev${NC} - Sandboxed Development"
+echo "  ─────────────────────────────────────"
+IP=$(orb list 2>/dev/null | grep "$SANDBOX_VM" | awk '{print $NF}')
+log "VM: $SANDBOX_VM ($IP)"
+log "Dir: ~/$WORK_DIR"
+echo ""
+
+# Start interactive Claude session
+exec orb -m "$SANDBOX_VM" bash -c "cd ~/$WORK_DIR && claude"

@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git log:*)",
+      "Bash(ls:*)",
+      "Bash(mkdir:*)",
+      "Bash(cat:*)",
+      "Bash(date:*)",
+      "Bash(fort-status:*)",
+      "Bash(fort-notify:*)",
+      "Bash(bd:*)",
+      "Bash(tab-title:*)",
+      "WebSearch"
+    ]
+  },
+  "enableAllProjectMcpServers": false
+}

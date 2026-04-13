@@ -1,0 +1,863 @@
+#!/bin/bash
+set -euo pipefail
+
+# fort-bootstrap — Set up Fort on any Mac
+# Usage:
+#   ./fort-bootstrap              Fresh setup (prereqs + profile + assembly)
+#   ./fort-bootstrap --refresh    Update from core (with backup + diff preview)
+#   ./fort-bootstrap --rollback   Restore from backup
+#   ./fort-bootstrap --status     Show current profile and state
+
+VERSION="1.0.1"
+FORT_ROOT="$(cd "$(dirname "$0")" && pwd)"
+YES=false
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+DIM='\033[2m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+CASTLE="🏰"
+CHECK="✓"
+CROSS="✗"
+ARROW="→"
+
+# ─── Helpers ───────────────────────────────────────────────
+
+log()     { echo -e "  ${GREEN}${CHECK}${NC} $1"; }
+warn()    { echo -e "  ${YELLOW}!${NC} $1"; }
+err()     { echo -e "  ${RED}${CROSS}${NC} $1"; }
+info()    { echo -e "  ${BLUE}${ARROW}${NC} $1"; }
+header()  { echo -e "\n${BOLD}━━━ $1 ━━━${NC}\n"; }
+
+confirm() {
+  local msg="${1:-Continue?}"
+  if $YES; then
+    echo -e "  ${msg} ${DIM}(auto-yes)${NC}"
+    return 0
+  fi
+  echo -en "  ${msg} ${DIM}(y/n)${NC} "
+  read -r answer
+  [[ "$answer" =~ ^[Yy]$ ]]
+}
+
+# ─── Prerequisites ─────────────────────────────────────────
+
+check_prereqs() {
+  header "Checking your machine"
+
+  local missing=()
+  local missing_names=()
+
+  # macOS
+  if [[ "$(uname)" == "Darwin" ]]; then
+    log "macOS $(sw_vers -productVersion)"
+  else
+    err "Fort requires macOS"
+    exit 1
+  fi
+
+  # Homebrew
+  if command -v brew &>/dev/null; then
+    log "Homebrew $(brew --version | head -1 | awk '{print $2}')"
+  else
+    err "Homebrew — not installed"
+    missing+=("homebrew")
+    missing_names+=("Homebrew — macOS package manager (installs everything else)")
+  fi
+
+  # Node.js
+  if command -v node &>/dev/null; then
+    log "Node.js $(node --version)"
+  else
+    err "Node.js — not installed"
+    missing+=("node")
+    missing_names+=("Node.js — runs Fort's tools and plugins")
+  fi
+
+  # Git
+  if command -v git &>/dev/null; then
+    log "Git $(git --version | awk '{print $3}')"
+  else
+    err "Git — not installed"
+    missing+=("git")
+    missing_names+=("Git — version control (syncs Fort between machines)")
+  fi
+
+  # Claude Code
+  if command -v claude &>/dev/null; then
+    log "Claude Code $(claude --version 2>/dev/null || echo 'installed')"
+  else
+    err "Claude Code — not installed"
+    missing+=("claude")
+    missing_names+=("Claude Code — your AI assistant")
+  fi
+
+  if [[ ${#missing[@]} -eq 0 ]]; then
+    echo ""
+    log "All prerequisites installed!"
+    return 0
+  fi
+
+  echo ""
+  echo -e "  I need to install ${BOLD}${#missing[@]}${NC} thing(s):"
+  echo ""
+  for i in "${!missing_names[@]}"; do
+    echo -e "    $((i+1)). ${missing_names[$i]}"
+  done
+  echo ""
+
+  if ! confirm "Ready?"; then
+    echo ""
+    echo "  No problem. Install these manually and run fort-bootstrap again."
+    exit 0
+  fi
+
+  for pkg in "${missing[@]}"; do
+    install_prereq "$pkg"
+  done
+
+  echo ""
+  log "All prerequisites installed!"
+}
+
+install_prereq() {
+  local pkg="$1"
+
+  case "$pkg" in
+    homebrew)
+      header "Step: Homebrew"
+      echo "  Homebrew is how we install software on Mac."
+      echo "  This may ask for your password — that's normal."
+      echo ""
+      /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+      # Add to PATH for this session
+      eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || /usr/local/bin/brew shellenv 2>/dev/null)"
+      log "Homebrew installed"
+      ;;
+    node)
+      header "Step: Node.js"
+      echo "  Fort's plugins and scripts need Node.js to run."
+      echo ""
+      brew install node
+      log "Node.js installed ($(node --version))"
+      ;;
+    git)
+      header "Step: Git"
+      echo "  Git keeps Fort in sync between your machines."
+      echo ""
+      brew install git
+      log "Git installed ($(git --version | awk '{print $3}'))"
+      ;;
+    claude)
+      header "Step: Claude Code"
+      echo "  This is the AI assistant that powers Fort."
+      echo "  You'll need an Anthropic account to use it."
+      echo ""
+      npm install -g @anthropic-ai/claude-code
+      log "Claude Code installed"
+      ;;
+  esac
+}
+
+# ─── Profile Selection ─────────────────────────────────────
+
+select_profile() {
+  header "Profile Selection"
+
+  echo "  Who is this Fort for?"
+  echo ""
+  echo -e "    1) ${BOLD}corey${NC}    — full power-user setup"
+  echo -e "    2) ${BOLD}ilyssa${NC}   — household + creative workflows"
+  echo -e "    3) ${BOLD}server${NC}   — always-on, headless, scheduled tasks"
+  echo -e "    4) ${BOLD}vanilla${NC}  — clean starter (shareable)"
+  echo ""
+
+  local choice
+  read -rp "  > " choice
+
+  case "$choice" in
+    1) PROFILE="corey" ;;
+    2) PROFILE="ilyssa" ;;
+    3) PROFILE="server" ;;
+    4) PROFILE="vanilla" ;;
+    *)
+      err "Invalid choice. Pick 1-4."
+      select_profile
+      return
+      ;;
+  esac
+
+  echo "$PROFILE" > "$FORT_ROOT/.fort-profile"
+  log "Profile set: $PROFILE"
+}
+
+# ─── Backup ────────────────────────────────────────────────
+
+backup_current() {
+  local backup_dir="$FORT_ROOT/.fort-backup/$(date +%Y-%m-%d-%H%M%S)"
+  local has_files=false
+
+  # Check if there's anything to back up
+  for target in .claude/hooks .claude/rules .claude/commands .claude/settings.local.json CLAUDE.md bin plugins; do
+    if [[ -e "$FORT_ROOT/$target" ]]; then
+      has_files=true
+      break
+    fi
+  done
+
+  if ! $has_files; then
+    return 0
+  fi
+
+  info "Backing up current state to .fort-backup/$(basename "$backup_dir")/"
+
+  mkdir -p "$backup_dir"
+
+  # Back up everything that assembly would overwrite (ignore missing files)
+  [[ -d "$FORT_ROOT/.claude/hooks" ]]    && cp -r "$FORT_ROOT/.claude/hooks" "$backup_dir/" 2>/dev/null || true
+  [[ -d "$FORT_ROOT/.claude/rules" ]]    && cp -r "$FORT_ROOT/.claude/rules" "$backup_dir/" 2>/dev/null || true
+  [[ -d "$FORT_ROOT/.claude/commands" ]] && cp -r "$FORT_ROOT/.claude/commands" "$backup_dir/" 2>/dev/null || true
+  [[ -f "$FORT_ROOT/.claude/settings.local.json" ]] && cp "$FORT_ROOT/.claude/settings.local.json" "$backup_dir/" 2>/dev/null || true
+  [[ -f "$FORT_ROOT/CLAUDE.md" ]]        && cp "$FORT_ROOT/CLAUDE.md" "$backup_dir/" 2>/dev/null || true
+  [[ -d "$FORT_ROOT/bin" ]]              && cp -r "$FORT_ROOT/bin" "$backup_dir/" 2>/dev/null || true
+  [[ -d "$FORT_ROOT/plugins" ]]          && cp -r "$FORT_ROOT/plugins" "$backup_dir/" 2>/dev/null || true
+
+  log "Backup complete"
+
+  # Prune old backups (keep last 5)
+  local backup_root="$FORT_ROOT/.fort-backup"
+  local count
+  count=$(ls -1d "$backup_root"/*/ 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "$count" -gt 5 ]]; then
+    ls -1d "$backup_root"/*/ | head -n "$((count - 5))" | while read -r old; do
+      rm -rf "$old"
+    done
+    info "Pruned old backups (kept last 5)"
+  fi
+}
+
+# ─── Manifest ─────────────────────────────────────────────
+
+generate_manifest() {
+  local profile="$1"
+  local profile_dir="$FORT_ROOT/profiles/$profile"
+  local manifest="$FORT_ROOT/fort-manifest.json"
+  local machine
+  machine=$(hostname -s)
+  local timestamp
+  timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+  # --- Collect hooks (active) ---
+  local hooks_json=""
+  local hooks_active=0
+  for hook in "$FORT_ROOT/.claude/hooks/"*.sh; do
+    [[ ! -f "$hook" ]] && continue
+    local name hash source_path
+    name=$(basename "$hook")
+    hash=$(md5 -q "$hook")
+    # Determine source
+    if [[ -f "$profile_dir/hooks-extra/$name" ]]; then
+      source_path="profiles/$profile/hooks-extra/$name"
+    else
+      source_path="core/hooks/$name"
+    fi
+    [[ -n "$hooks_json" ]] && hooks_json="$hooks_json,"
+    hooks_json="$hooks_json
+      {\"name\":\"$name\",\"source\":\"$source_path\",\"hash\":\"$hash\",\"status\":\"active\"}"
+    hooks_active=$((hooks_active + 1))
+  done
+
+  # --- Collect hooks_disabled ---
+  local hooks_disabled_json=""
+  local hooks_disabled_count=0
+  if [[ -d "$profile_dir/hooks-disabled" ]]; then
+    for disabled in "$profile_dir/hooks-disabled/"*.sh; do
+      [[ ! -f "$disabled" ]] && continue
+      local name
+      name=$(basename "$disabled")
+      [[ -n "$hooks_disabled_json" ]] && hooks_disabled_json="$hooks_disabled_json,"
+      hooks_disabled_json="$hooks_disabled_json\"$name\""
+      hooks_disabled_count=$((hooks_disabled_count + 1))
+    done
+  fi
+
+  # --- Collect rules ---
+  local rules_json=""
+  local rules_count=0
+  for rule in "$FORT_ROOT/.claude/rules/"*; do
+    [[ ! -f "$rule" ]] && continue
+    local name hash
+    name=$(basename "$rule")
+    hash=$(md5 -q "$rule")
+    [[ -n "$rules_json" ]] && rules_json="$rules_json,"
+    rules_json="$rules_json
+      {\"name\":\"$name\",\"source\":\"core/rules/$name\",\"hash\":\"$hash\"}"
+    rules_count=$((rules_count + 1))
+  done
+
+  # --- Collect commands ---
+  local commands_json=""
+  local commands_count=0
+  for cmd in "$FORT_ROOT/.claude/commands/"*.md; do
+    [[ ! -f "$cmd" ]] && continue
+    local name hash
+    name=$(basename "$cmd")
+    hash=$(md5 -q "$cmd")
+    [[ -n "$commands_json" ]] && commands_json="$commands_json,"
+    commands_json="$commands_json
+      {\"name\":\"$name\",\"source\":\"profiles/$profile/commands/$name\",\"hash\":\"$hash\"}"
+    commands_count=$((commands_count + 1))
+  done
+
+  # --- Collect plugins ---
+  local plugins_json=""
+  local plugins_count=0
+  local total_skills=0
+  for pdir in "$FORT_ROOT/plugins/"*/; do
+    [[ ! -d "$pdir" ]] && continue
+    local name source_path
+    name=$(basename "$pdir")
+    # Determine source: profile plugins override core
+    if [[ -d "$profile_dir/plugins/$name" ]]; then
+      source_path="profiles/$profile/plugins/$name"
+    else
+      source_path="core/plugins/$name"
+    fi
+    # List skills
+    local skills_json=""
+    local skill_count=0
+    if [[ -d "$pdir/skills" ]]; then
+      for skill in "$pdir/skills/"*.md; do
+        [[ ! -f "$skill" ]] && continue
+        local sname
+        sname=$(basename "$skill")
+        [[ -n "$skills_json" ]] && skills_json="$skills_json,"
+        skills_json="$skills_json\"$sname\""
+        skill_count=$((skill_count + 1))
+      done
+    fi
+    total_skills=$((total_skills + skill_count))
+    [[ -n "$plugins_json" ]] && plugins_json="$plugins_json,"
+    plugins_json="$plugins_json
+      {\"name\":\"$name\",\"source\":\"$source_path\",\"skills\":[$skills_json],\"skill_count\":$skill_count}"
+    plugins_count=$((plugins_count + 1))
+  done
+
+  # --- Collect bin scripts ---
+  local bin_json=""
+  local bin_count=0
+  for script in "$FORT_ROOT/bin/"*; do
+    [[ ! -f "$script" ]] && continue
+    local name hash
+    name=$(basename "$script")
+    hash=$(md5 -q "$script")
+    [[ -n "$bin_json" ]] && bin_json="$bin_json,"
+    bin_json="$bin_json
+      {\"name\":\"$name\",\"source\":\"core/bin/$name\",\"hash\":\"$hash\"}"
+    bin_count=$((bin_count + 1))
+  done
+
+  # --- Write JSON ---
+  cat > "$manifest" << MANIFEST_EOF
+{
+  "version": "1.0",
+  "profile": "$profile",
+  "machine": "$machine",
+  "assembled_at": "$timestamp",
+  "fort_root": "$FORT_ROOT",
+  "components": {
+    "hooks": [$hooks_json
+    ],
+    "hooks_disabled": [$hooks_disabled_json],
+    "rules": [$rules_json
+    ],
+    "commands": [$commands_json
+    ],
+    "plugins": [$plugins_json
+    ],
+    "bin": [$bin_json
+    ]
+  },
+  "counts": {
+    "hooks_active": $hooks_active,
+    "hooks_disabled": $hooks_disabled_count,
+    "rules": $rules_count,
+    "commands": $commands_count,
+    "plugins": $plugins_count,
+    "skills": $total_skills,
+    "bin_scripts": $bin_count
+  }
+}
+MANIFEST_EOF
+}
+
+# ─── Assembly ──────────────────────────────────────────────
+
+assemble_fort() {
+  local profile="$1"
+  local profile_dir="$FORT_ROOT/profiles/$profile"
+
+  if [[ ! -d "$profile_dir" ]]; then
+    err "Profile '$profile' not found at $profile_dir"
+    exit 1
+  fi
+
+  header "Assembling Fort for $profile"
+
+  # 1. Concatenate CLAUDE.md (base + profile)
+  cat "$FORT_ROOT/core/CLAUDE.base.md" > "$FORT_ROOT/CLAUDE.md"
+  echo "" >> "$FORT_ROOT/CLAUDE.md"
+  echo "---" >> "$FORT_ROOT/CLAUDE.md"
+  echo "" >> "$FORT_ROOT/CLAUDE.md"
+  if [[ -f "$profile_dir/CLAUDE.md" ]]; then
+    cat "$profile_dir/CLAUDE.md" >> "$FORT_ROOT/CLAUDE.md"
+  fi
+  log "CLAUDE.md assembled (base + $profile)"
+
+  # 2. Copy core/bin/ → bin/ (template plist files with FORT_ROOT)
+  mkdir -p "$FORT_ROOT/bin"
+  for f in "$FORT_ROOT/core/bin/"*; do
+    [[ ! -f "$f" ]] && continue
+    local name
+    name=$(basename "$f")
+    if [[ "$name" == *.plist ]]; then
+      # Plist files can't use shell vars — sed-replace the placeholder
+      sed "s|__FORT_ROOT__|$FORT_ROOT|g; s|__FORT_USER__|$(whoami)|g" "$f" > "$FORT_ROOT/bin/$name"
+    else
+      cp -f "$f" "$FORT_ROOT/bin/$name"
+    fi
+  done
+  chmod +x "$FORT_ROOT/bin/"* 2>/dev/null || true
+  log "bin/ scripts installed ($(ls "$FORT_ROOT/core/bin/" | wc -l | tr -d ' '))"
+
+  # 3. Copy core/hooks/ → .claude/hooks/ (skip hooks-disabled)
+  mkdir -p "$FORT_ROOT/.claude/hooks"
+  # Clean stale hooks first (prevents ghost hooks from previous profiles/removed hooks)
+  rm -f "$FORT_ROOT/.claude/hooks/"*.sh 2>/dev/null || true
+  local hooks_installed=0
+  local hooks_skipped=0
+  for hook in "$FORT_ROOT/core/hooks/"*.sh; do
+    [[ ! -f "$hook" ]] && continue
+    local name
+    name=$(basename "$hook")
+    if [[ -f "$profile_dir/hooks-disabled/$name" ]]; then
+      hooks_skipped=$((hooks_skipped + 1))
+    else
+      cp -f "$hook" "$FORT_ROOT/.claude/hooks/"
+      chmod +x "$FORT_ROOT/.claude/hooks/$name"
+      hooks_installed=$((hooks_installed + 1))
+    fi
+  done
+  log "Hooks installed: $hooks_installed active, $hooks_skipped disabled"
+
+  # 4. Copy profile hooks-extra/ → .claude/hooks/
+  if [[ -d "$profile_dir/hooks-extra" ]]; then
+    local extra=0
+    for hook in "$profile_dir/hooks-extra/"*.sh; do
+      [[ ! -f "$hook" ]] && continue
+      cp -f "$hook" "$FORT_ROOT/.claude/hooks/"
+      chmod +x "$FORT_ROOT/.claude/hooks/$(basename "$hook")"
+      extra=$((extra + 1))
+    done
+    [[ $extra -gt 0 ]] && log "Extra hooks: $extra (profile-specific)"
+  fi
+
+  # 5. Copy core/rules/ → .claude/rules/
+  mkdir -p "$FORT_ROOT/.claude/rules"
+  cp -f "$FORT_ROOT/core/rules/"* "$FORT_ROOT/.claude/rules/" 2>/dev/null || true
+  log "Rules installed ($(ls "$FORT_ROOT/core/rules/" 2>/dev/null | wc -l | tr -d ' '))"
+
+  # 6. Copy profile settings.json → .claude/settings.local.json (with path templating)
+  if [[ -f "$profile_dir/settings.json" ]]; then
+    mkdir -p "$FORT_ROOT/.claude"
+    sed "s|__FORT_ROOT__|$FORT_ROOT|g" "$profile_dir/settings.json" > "$FORT_ROOT/.claude/settings.local.json"
+    log "Settings installed from $profile profile (paths resolved)"
+  fi
+
+  # 7. Copy core/plugins/ + profile plugins/ → plugins/
+  mkdir -p "$FORT_ROOT/plugins"
+  local plugin_count=0
+  for plugin_dir in "$FORT_ROOT/core/plugins/"*/; do
+    [[ ! -d "$plugin_dir" ]] && continue
+    local name
+    name=$(basename "$plugin_dir")
+    cp -rf "$plugin_dir" "$FORT_ROOT/plugins/"
+    plugin_count=$((plugin_count + 1))
+  done
+  for plugin_dir in "$profile_dir/plugins/"*/; do
+    [[ ! -d "$plugin_dir" ]] && continue
+    local name
+    name=$(basename "$plugin_dir")
+    [[ "$name" == ".gitkeep" ]] && continue
+    cp -rf "$plugin_dir" "$FORT_ROOT/plugins/"
+    plugin_count=$((plugin_count + 1))
+  done
+  log "Plugins installed: $plugin_count"
+
+  # 8. Copy profile commands/ → .claude/commands/
+  mkdir -p "$FORT_ROOT/.claude/commands"
+  # Clear existing commands first (profile controls which commands are available)
+  rm -f "$FORT_ROOT/.claude/commands/"*.md 2>/dev/null || true
+  local cmd_count=0
+  for cmd in "$profile_dir/commands/"*.md; do
+    [[ ! -f "$cmd" ]] && continue
+    cp -f "$cmd" "$FORT_ROOT/.claude/commands/"
+    cmd_count=$((cmd_count + 1))
+  done
+  log "Commands installed: $cmd_count"
+
+  # 9. Create personal dirs if they don't exist
+  for dir in memory notes scratch logs projects; do
+    if [[ ! -d "$FORT_ROOT/$dir" ]]; then
+      mkdir -p "$FORT_ROOT/$dir"
+      log "Created $dir/"
+    fi
+  done
+
+  # 10. Write .fort-env
+  cat > "$FORT_ROOT/.fort-env" << EOF
+# .fort-env — machine-specific Fort configuration
+FORT_ROOT="$FORT_ROOT"
+FORT_REMOTE_IP="${FORT_REMOTE_IP:-}"
+FORT_PROFILE="$profile"
+FORT_USER="$(whoami)"
+EOF
+  log ".fort-env written"
+
+  # 11. Generate manifest
+  generate_manifest "$profile"
+  log "Manifest written (fort-manifest.json)"
+}
+
+# ─── Refresh ───────────────────────────────────────────────
+
+do_refresh() {
+  if [[ ! -f "$FORT_ROOT/.fort-profile" ]]; then
+    err "No .fort-profile found. Run fort-bootstrap first (without --refresh)."
+    exit 1
+  fi
+
+  local profile
+  profile=$(cat "$FORT_ROOT/.fort-profile")
+
+  header "Refreshing Fort ($profile profile)"
+
+  # Show what would change
+  echo "  Checking for changes..."
+  echo ""
+
+  local changes=0
+  local change_list=()
+
+  # Check core hooks
+  for hook in "$FORT_ROOT/core/hooks/"*.sh; do
+    [[ ! -f "$hook" ]] && continue
+    local name
+    name=$(basename "$hook")
+    local target="$FORT_ROOT/.claude/hooks/$name"
+    if [[ ! -f "$target" ]]; then
+      change_list+=("  ${GREEN}+${NC} hooks/$name (new)")
+      changes=$((changes + 1))
+    elif ! diff -q "$hook" "$target" &>/dev/null; then
+      change_list+=("  ${YELLOW}~${NC} hooks/$name (modified)")
+      changes=$((changes + 1))
+    fi
+  done
+
+  # Check core rules
+  for rule in "$FORT_ROOT/core/rules/"*; do
+    [[ ! -f "$rule" ]] && continue
+    local name
+    name=$(basename "$rule")
+    local target="$FORT_ROOT/.claude/rules/$name"
+    if [[ ! -f "$target" ]]; then
+      change_list+=("  ${GREEN}+${NC} rules/$name (new)")
+      changes=$((changes + 1))
+    elif ! diff -q "$rule" "$target" &>/dev/null; then
+      change_list+=("  ${YELLOW}~${NC} rules/$name (modified)")
+      changes=$((changes + 1))
+    fi
+  done
+
+  # Check bin scripts
+  for script in "$FORT_ROOT/core/bin/"*; do
+    [[ ! -f "$script" ]] && continue
+    local name
+    name=$(basename "$script")
+    local target="$FORT_ROOT/bin/$name"
+    if [[ ! -f "$target" ]]; then
+      change_list+=("  ${GREEN}+${NC} bin/$name (new)")
+      changes=$((changes + 1))
+    elif ! diff -q "$script" "$target" &>/dev/null; then
+      change_list+=("  ${YELLOW}~${NC} bin/$name (modified)")
+      changes=$((changes + 1))
+    fi
+  done
+
+  # Check profile commands
+  local profile_dir="$FORT_ROOT/profiles/$profile"
+  for cmd in "$profile_dir/commands/"*.md; do
+    [[ ! -f "$cmd" ]] && continue
+    local name
+    name=$(basename "$cmd")
+    local target="$FORT_ROOT/.claude/commands/$name"
+    if [[ ! -f "$target" ]]; then
+      change_list+=("  ${GREEN}+${NC} commands/$name (new)")
+      changes=$((changes + 1))
+    elif ! diff -q "$cmd" "$target" &>/dev/null; then
+      change_list+=("  ${YELLOW}~${NC} commands/$name (modified)")
+      changes=$((changes + 1))
+    fi
+  done
+
+  if [[ $changes -eq 0 ]]; then
+    log "Everything up to date. No changes needed."
+    return 0
+  fi
+
+  echo -e "  ${BOLD}Changes incoming:${NC}"
+  echo ""
+  for line in "${change_list[@]}"; do
+    echo -e "$line"
+  done
+  echo ""
+
+  if ! confirm "Apply $changes change(s)?"; then
+    echo ""
+    echo "  No changes made."
+    return 0
+  fi
+
+  backup_current
+  assemble_fort "$profile"
+
+  echo ""
+  log "Fort refreshed."
+}
+
+# ─── Rollback ──────────────────────────────────────────────
+
+do_rollback() {
+  local backup_root="$FORT_ROOT/.fort-backup"
+
+  if [[ ! -d "$backup_root" ]] || [[ -z "$(ls -A "$backup_root" 2>/dev/null)" ]]; then
+    err "No backups found."
+    exit 1
+  fi
+
+  header "Rollback"
+
+  echo "  Available backups:"
+  echo ""
+
+  local backups=()
+  local i=1
+  while IFS= read -r dir; do
+    backups+=("$dir")
+    local label
+    label=$(basename "$dir")
+    if [[ $i -eq 1 ]]; then
+      echo -e "    $i) $label ${DIM}(latest)${NC}"
+    else
+      echo -e "    $i) $label"
+    fi
+    i=$((i + 1))
+  done < <(ls -1d "$backup_root"/*/ 2>/dev/null | sort -r)
+
+  echo ""
+  read -rp "  Restore which? (1) " choice
+  choice="${choice:-1}"
+
+  local idx=$((choice - 1))
+  if [[ $idx -lt 0 ]] || [[ $idx -ge ${#backups[@]} ]]; then
+    err "Invalid choice."
+    exit 1
+  fi
+
+  local restore_dir="${backups[$idx]}"
+  info "Restoring from $(basename "$restore_dir")..."
+
+  # Restore each component if it exists in the backup
+  [[ -d "$restore_dir/hooks" ]]    && cp -rf "$restore_dir/hooks" "$FORT_ROOT/.claude/"
+  [[ -d "$restore_dir/rules" ]]    && cp -rf "$restore_dir/rules" "$FORT_ROOT/.claude/"
+  [[ -d "$restore_dir/commands" ]] && cp -rf "$restore_dir/commands" "$FORT_ROOT/.claude/"
+  [[ -f "$restore_dir/settings.local.json" ]] && cp -f "$restore_dir/settings.local.json" "$FORT_ROOT/.claude/"
+  [[ -f "$restore_dir/CLAUDE.md" ]] && cp -f "$restore_dir/CLAUDE.md" "$FORT_ROOT/"
+  [[ -d "$restore_dir/bin" ]]      && cp -rf "$restore_dir/bin" "$FORT_ROOT/"
+  [[ -d "$restore_dir/plugins" ]]  && cp -rf "$restore_dir/plugins" "$FORT_ROOT/"
+
+  log "Restored from $(basename "$restore_dir")"
+}
+
+# ─── Status ────────────────────────────────────────────────
+
+do_status() {
+  echo ""
+  echo -e "  ${CASTLE} ${BOLD}Fort Status${NC}"
+  echo ""
+
+  # Profile
+  if [[ -f "$FORT_ROOT/.fort-profile" ]]; then
+    local profile
+    profile=$(cat "$FORT_ROOT/.fort-profile")
+    log "Profile: $profile"
+  else
+    warn "Profile: not set (run fort-bootstrap)"
+  fi
+
+  # Last refresh (newest file in .claude/hooks as proxy)
+  local last_mod
+  last_mod=$(stat -f "%Sm" -t "%Y-%m-%d %H:%M" "$FORT_ROOT/.claude/hooks/"*.sh 2>/dev/null | sort -r | head -1)
+  if [[ -n "$last_mod" ]]; then
+    log "Last refresh: ~$last_mod"
+  fi
+
+  # Backup count
+  local backup_count=0
+  if [[ -d "$FORT_ROOT/.fort-backup" ]]; then
+    backup_count=$(ls -1d "$FORT_ROOT/.fort-backup"/*/ 2>/dev/null | wc -l | tr -d ' ')
+  fi
+  log "Backups: $backup_count saved"
+
+  # Check for upstream changes
+  local upstream_changes=0
+  for hook in "$FORT_ROOT/core/hooks/"*.sh; do
+    [[ ! -f "$hook" ]] && continue
+    local name
+    name=$(basename "$hook")
+    local target="$FORT_ROOT/.claude/hooks/$name"
+    if [[ -f "$target" ]] && ! diff -q "$hook" "$target" &>/dev/null; then
+      upstream_changes=$((upstream_changes + 1))
+    elif [[ ! -f "$target" ]]; then
+      upstream_changes=$((upstream_changes + 1))
+    fi
+  done
+
+  if [[ $upstream_changes -gt 0 ]]; then
+    warn "Upstream: $upstream_changes core change(s) available (run: fort-bootstrap --refresh)"
+  else
+    log "Upstream: up to date"
+  fi
+
+  # Counts
+  local hooks_count
+  hooks_count=$(ls "$FORT_ROOT/.claude/hooks/"*.sh 2>/dev/null | wc -l | tr -d ' ')
+  local cmds_count
+  cmds_count=$(ls "$FORT_ROOT/.claude/commands/"*.md 2>/dev/null | wc -l | tr -d ' ')
+  local plugins_count
+  plugins_count=$(ls -d "$FORT_ROOT/plugins/"*/ 2>/dev/null | wc -l | tr -d ' ')
+
+  echo ""
+  echo -e "  ${DIM}Hooks: $hooks_count | Commands: $cmds_count | Plugins: $plugins_count${NC}"
+
+  # Manifest info
+  if [[ -f "$FORT_ROOT/fort-manifest.json" ]]; then
+    local manifest_time
+    manifest_time=$(stat -f "%Sm" -t "%Y-%m-%d %H:%M" "$FORT_ROOT/fort-manifest.json" 2>/dev/null)
+    if [[ -n "$manifest_time" ]]; then
+      echo -e "  ${DIM}Manifest: $manifest_time${NC}"
+    fi
+  fi
+  echo ""
+}
+
+# ─── Main ──────────────────────────────────────────────────
+
+main() {
+  echo ""
+  echo -e "  ${CASTLE} ${BOLD}Fort Setup${NC} ${DIM}v${VERSION}${NC}"
+
+  check_prereqs
+
+  # Check for existing fort files
+  if [[ -f "$FORT_ROOT/CLAUDE.md" ]] || [[ -d "$FORT_ROOT/.claude/hooks" ]]; then
+    echo ""
+    warn "Existing Fort files detected."
+    backup_current
+  fi
+
+  if [[ -z "${PROFILE:-}" ]]; then
+    select_profile
+  else
+    echo "$PROFILE" > "$FORT_ROOT/.fort-profile"
+    log "Profile set: $PROFILE (via --profile)"
+  fi
+  assemble_fort "$PROFILE"
+
+  # Summary
+  echo ""
+  echo -e "  ${CASTLE} ${BOLD}Fort assembled for ${PROFILE}${NC}"
+  echo ""
+  local hooks_count
+  hooks_count=$(ls "$FORT_ROOT/.claude/hooks/"*.sh 2>/dev/null | wc -l | tr -d ' ')
+  local cmds_count
+  cmds_count=$(ls "$FORT_ROOT/.claude/commands/"*.md 2>/dev/null | wc -l | tr -d ' ')
+  local plugins_count
+  plugins_count=$(ls -d "$FORT_ROOT/plugins/"*/ 2>/dev/null | wc -l | tr -d ' ')
+
+  echo -e "    Profile:   ${BOLD}$PROFILE${NC}"
+  echo -e "    Hooks:     $hooks_count active"
+  echo -e "    Commands:  $cmds_count"
+  echo -e "    Plugins:   $plugins_count"
+  echo ""
+  echo "  To finish setup:"
+  echo -e "    ${ARROW} Run ${BOLD}claude${NC} and log in with your Anthropic account"
+  echo -e "    ${ARROW} API keys: configure when ready (not required for setup)"
+  echo ""
+  echo "  To update Fort later:"
+  echo -e "    ${ARROW} git pull && ./fort-bootstrap --refresh"
+  echo ""
+  echo -e "  ${CASTLE} ${BOLD}Ready.${NC}"
+  echo ""
+}
+
+# ─── Dispatch ──────────────────────────────────────────────
+
+# Parse flags
+COMMAND=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --yes|-y)   YES=true; shift ;;
+    --profile)  PROFILE_ARG="$2"; shift 2 ;;
+    --refresh)  COMMAND="refresh"; shift ;;
+    --rollback) COMMAND="rollback"; shift ;;
+    --status)   COMMAND="status"; shift ;;
+    --drift)    COMMAND="drift"; shift ;;
+    --help|-h)  COMMAND="help"; shift ;;
+    *)          err "Unknown option: $1"; echo "Run: fort-bootstrap --help"; exit 1 ;;
+  esac
+done
+
+case "$COMMAND" in
+  refresh)  do_refresh ;;
+  rollback) do_rollback ;;
+  status)   do_status ;;
+  drift)    "$FORT_ROOT/bin/fort-drift" "$@" ;;
+  help)
+    echo "Usage: fort-bootstrap [OPTIONS] [COMMAND]"
+    echo ""
+    echo "Commands:"
+    echo "  (no args)    Fresh setup — install prereqs, select profile, assemble Fort"
+    echo "  --refresh    Update from core + profile (backs up first, shows diff)"
+    echo "  --rollback   Restore from a previous backup"
+    echo "  --status     Show current profile, last refresh, pending changes"
+    echo "  --drift      Check for local modifications to assembled components"
+    echo ""
+    echo "Options:"
+    echo "  --yes, -y         Skip confirmation prompts"
+    echo "  --profile NAME    Set profile without interactive selection"
+    echo "  --help, -h        This message"
+    ;;
+  "")
+    # If --profile was passed, use it instead of interactive selection
+    if [[ -n "${PROFILE_ARG:-}" ]]; then
+      PROFILE="$PROFILE_ARG"
+    fi
+    main
+    ;;
+esac
