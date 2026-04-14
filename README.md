@@ -170,6 +170,41 @@ Rules of thumb:
 
 ---
 
+## Worker agent profiles — cost discipline through model routing
+
+This is the single biggest unlock in the setup this was extracted from, and it directly answers the "this workflow burns tokens" concern.
+
+Claude Code lets you define named sub-agents with specific models and tool scopes. The starter ships four:
+
+| Agent | Model | Tools | Dispatch for |
+|-------|-------|-------|--------------|
+| `worker-mechanical` | Haiku | Read, Grep, Glob, Bash | Fact lookups, file existence, config values |
+| `worker-research` | Sonnet | +Write, WebSearch, WebFetch | Investigation, competitive research, codebase exploration |
+| `worker-editor` | Sonnet | +Edit, Write | Scoped code changes from a brief |
+| `worker-reviewer` | Opus | Read, Grep, Glob, Bash | Senior review, security audit, pre-merge verification |
+
+**Why this matters for cost:**
+
+A naive setup runs every sub-agent on the coordinator's model. If your coordinator is Opus, every "what port does this service use?" lookup burns Opus tokens. That's 10-20x more expensive than Haiku for a task Haiku nails.
+
+Routing by job keeps the bill honest:
+
+- **Mechanical** (Haiku) — cheap and fast, for tasks where the answer shape is "a fact"
+- **Research / Editor** (Sonnet) — the workhorse tier, good judgment at a reasonable rate
+- **Reviewer** (Opus) — reserved for senior-level review where cost is worth it
+
+**Why this matters for safety:**
+
+Each agent's tool list is a scope gate. The reviewer can't write files — the definition doesn't include `Edit` or `Write`, so the tool isn't available at all. The editor can't run web searches. The mechanical worker can't touch the internet. Behavior-by-construction, not behavior-by-instruction.
+
+Pair this with SpiceBox for OS-level permission enforcement (different filesystem scopes per agent, network allowlists, sandboxing) and you get defense-in-depth without writing a single hook.
+
+**Where they live:**
+
+`core/agents/*.md`. Bootstrap copies them to `.claude/agents/`. Edit, add, or delete — the four here are starting points, not prescriptions.
+
+---
+
 ## What it actually looks like
 
 ### Setup
@@ -187,6 +222,7 @@ fort-starter bootstrap v1.0
   Assembling workspace...
   [ok] CLAUDE.md written
   [ok] .claude/hooks/ -- 10 hooks installed
+  [ok] .claude/agents/ -- 4 worker agents (Haiku/Sonnet/Opus routed)
   [ok] memory/ -- starter structure created
   [ok] skills/ -- 20 starter skills linked
   [ok] bin/ -- utilities installed
@@ -270,6 +306,11 @@ my-workspace/
 │   │   ├── guard-env-files.sh
 │   │   ├── guard-secrets.sh
 │   │   └── ...
+│   ├── agents/                # Worker agent profiles (model routing + tool scoping)
+│   │   ├── worker-mechanical.md   # Haiku -- fast lookups
+│   │   ├── worker-research.md     # Sonnet -- investigation
+│   │   ├── worker-editor.md       # Sonnet -- scoped edits
+│   │   └── worker-reviewer.md     # Opus -- senior review
 │   └── rules/                 # Focused instruction files (auto-loaded)
 │       ├── guardrails.md
 │       ├── output-style.md
@@ -307,8 +348,9 @@ CLAUDE.md and rules load on every session -- budget ~2-3k tokens. Memory files l
 **What about overall token usage?**
 This is a token-heavy workflow. Sub-agent dispatch, automatic memory loading, and session-end `/distill` cycles all spend tokens -- a session that fans out two or three parallel research agents can easily 5-10x a chat-style session. Plan accordingly: Claude Max's higher tier for daily use, or watch your billing if you're on the API. The tradeoff is intentional -- the template optimizes for depth and continuity, not minimum spend.
 
-Two tools help you stay aware of what you're spending:
+Three things keep costs honest:
 
+- **Worker agent profiles with model routing** -- see the "Worker agent profiles" section above. Routing mechanical work to Haiku and reserving Opus for senior review is the single biggest cost lever in the setup.
 - **Bundled statusline** -- `core/bin/statusline.sh` ships with the template and is wired up by `fort-bootstrap`. It renders a live two-line bar: context %, token count, and working directory on top; model, session duration, and accumulated cost on the bottom. Color tiers (green → amber → red) trigger at thresholds so you catch runaway sessions before the bill lands.
 - **[Claude Usage Tracker](https://github.com/hamed-elfayome/Claude-Usage-Tracker)** -- separate project by @hamed-elfayome that gives you longitudinal usage reports (per session, per day, per model). Good complement to the in-session statusline when you want a weekly rollup.
 

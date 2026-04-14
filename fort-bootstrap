@@ -472,6 +472,13 @@ assemble_fort() {
   cp -f "$FORT_ROOT/core/rules/"* "$FORT_ROOT/.claude/rules/" 2>/dev/null || true
   log "Rules installed ($(ls "$FORT_ROOT/core/rules/" 2>/dev/null | wc -l | tr -d ' '))"
 
+  # 5b. Copy core/agents/ → .claude/agents/ (worker agent profiles)
+  if [[ -d "$FORT_ROOT/core/agents" ]]; then
+    mkdir -p "$FORT_ROOT/.claude/agents"
+    cp -f "$FORT_ROOT/core/agents/"*.md "$FORT_ROOT/.claude/agents/" 2>/dev/null || true
+    log "Agents installed ($(ls "$FORT_ROOT/core/agents/" 2>/dev/null | wc -l | tr -d ' '))"
+  fi
+
   # 6. Copy profile settings.json → .claude/settings.local.json (with path templating)
   if [[ -f "$profile_dir/settings.json" ]]; then
     mkdir -p "$FORT_ROOT/.claude"
