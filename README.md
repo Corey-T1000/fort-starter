@@ -46,6 +46,41 @@ This distinction -- probabilistic vs. deterministic -- is the organizing princip
 
 ---
 
+## Framing — the 'fort' is a bit of a dim factory (and why we like the big lights off)
+
+the fort runs with real autonomy. hooks fire without asking, memory auto-loads, `/distill` queues itself after sessions, agents dispatch other agents. cost accumulates live in the statusline while work happens in parallel worktrees.
+
+manufacturing has a term for a plant that runs lights-out with no humans on the floor: the "dark factory." the fort isnt that. its more like a *dim* factory — mostly autonomous, with me in the loop for anything consequential, and the autonomous bits set up to fail safe.
+
+**Why im OK with this split for my uses:**
+
+- **Single user, local first.** the fort runs on my machine. no one elses data, no one elses workflow, no one elses deploy pipeline. blast radius is me.
+- **Git is the safety net.** every autonomous action lands in a diff i can see and revert. hooks never auto-commit to main. agents never push without my hand on the trigger.
+- **Layered trust, anchored in SpiceBox.** three fences: tool scope at the agent layer (the reviewer literally doesnt have `Write` in its tool list), hooks at the intercept layer (blocking risky commands before they run), and SpiceBox at the kernel layer (OS sandbox handling filesystem scope and network allowlists). SpiceBox is the actual trust boundary, the line an agent cant cross. before SpiceBox was in the stack, hooks carried the whole trust story — which worked, right up until a hook pattern had a gap and something slipped through. hooks still do good work above SpiceBox (behavior, workflow, the probabilistic-to-deterministic promotion from Pattern 1). but they arent the right place to land your final trust decision.
+- **Observable.** statusline shows cost live. audit trails capture what happened. Fort Board surfaces every parallel session so i never lose track of whats running.
+- **Failures are loud.** silent failure is the enemy — its burned me once and theres a retro about it. any autonomous step that fails pings Discord, watchdogs escalate, no-ops show up in the status.
+- **Right-sized stakes.** nobodys healthcare depends on this. a scheduled job missing a run is annoying, not catastrophic. the autonomy envelope matches the consequences.
+
+would i hand this setup to someone running a production financial system? no. would i run it on a shared corporate box with team data? also no. but for a solo-designer-who-codes-through-AI building personal tools and exploring? yeah, and the productivity compound from handing off the routine stuff is kinda the whole point.
+
+**The honest risk:** a dim factory trusts its envelope. if the envelope cracks (a hook silently breaks, a scope gate has a bug, an agent escapes its tool list) damage can happen fast because no ones watching. thats why the observable layer (statusline + audit trail + Fort Board) is load-bearing — without it you cant run dim at all.
+
+---
+
+## The invisible-infrastructure check
+
+running **42 hooks, 87 memory topics, a kernel-level sandbox, a routing table that auto-loads context on file paths, and workers dispatching on three model tiers in the background**. you'd expect friction. there isnt any.
+
+- hooks that deny run silently on the 95% of commands they dont care about. the 5% they catch, i was gonna regret anyway.
+- memory auto-loads on the first file edit that matches a route — zero extra reads, no UI, no prompt. i find out it loaded when the agent mentions a gotcha before i hit it.
+- workers dispatch in the background on their own model tiers. i dont think about which model is running, the agent picks.
+- SpiceBox enforces at the syscall layer. unless im trying to escape the project root, i never feel it.
+- `/distill` runs after the session closes, not before. whatever i was doing is already saved by the time extraction starts.
+
+if any of it felt heavy i wouldnt still be using it 5 months later. the design spec for each layer is "do the work, stay out of the way." most of the receipts below (hook count, memory count, stream entries) i only know because i just counted them for this doc.
+
+---
+
 ## The five layers
 
 ```
@@ -70,7 +105,7 @@ Your CLAUDE.md is the agent's identity document. It tells Claude who it's workin
 
 ### 2. Hooks -- .claude/hooks/
 
-Shell scripts that Claude Code executes at defined trigger points: before a tool runs (`PreToolUse`), after it runs (`PostToolUse`), or when a session ends (`Stop`). Each hook returns a JSON decision -- `allow`, `deny`, or `ask` (prompt the user). The starter includes ~10 hooks across security, workflow, and quality categories. The setup this was extracted from runs 40+.
+Shell scripts that Claude Code executes at defined trigger points: before a tool runs (`PreToolUse`), after it runs (`PostToolUse`), or when a session ends (`Stop`). Each hook returns a JSON decision -- `allow`, `deny`, or `ask` (prompt the user). The starter includes ~23 hooks across security, workflow, and quality categories. The setup this was extracted from runs 42.
 
 ### 3. Memory -- memory/ + MEMORY.md
 
@@ -78,7 +113,7 @@ Topic files organized with [Johnny Decimal](https://johnnydecimal.com/) numberin
 
 ### 4. Skills -- skills/
 
-Markdown files that define slash commands -- `/distill`, `/research`, `/ship`, `/garden`. Each skill is a structured prompt that Claude loads on demand (not on every session). Skills keep specialized workflows out of your base context window. You invoke them with `/skill-name` and they guide multi-step processes. The vanilla profile ships with ~20 starter skills.
+Markdown files that define slash commands -- `/distill`, `/research`, `/ship`, `/garden`. Each skill is a structured prompt that Claude loads on demand (not on every session). Skills keep specialized workflows out of your base context window. You invoke them with `/skill-name` and they guide multi-step processes. The vanilla profile ships with ~17 starter skills. (See "The skill stack" section below for the full taxonomy and how they compose.)
 
 ### 5. CLI -- bin/
 
@@ -209,17 +244,7 @@ Pair this with SpiceBox for OS-level permission enforcement (different filesyste
 
 The infrastructure above is the scaffolding. What makes the setup actually compound over time is a handful of skills that feed signal back into the system. The Fort is semi self-improving — every session leaves the next session smarter.
 
-A typical session generates a lot of signal: decisions, gotchas, research findings, surprises. Without a capture layer, that signal evaporates when the session closes. These slash commands turn sessions into durable context:
-
-| Skill | What it does |
-|-------|--------------|
-| `/research` | Dispatches a sub-agent to investigate a topic and write findings to `scratch/research/`. Main thread stays responsive; results come back structured with sources. |
-| `/capture` | Takes recent research or discoveries and routes them into the right `memory/XX-topic.md` by JD number. Prompts before writing. |
-| `/distill` | Runs at session end. Reads the session log, git diff, and scratch writes; extracts what's worth keeping; writes it to the right memory file. |
-| `/compound` | Feature-level `/distill` — captures patterns, surprises, and decisions after finishing a chunk of work. |
-| `/garden` | Periodic maintenance. Flags stale memory, orphaned scratch files, broken references. Keeps the knowledge base honest. |
-
-The memory then loads on demand via the routing table (see Pattern 2 above). Next session's context window is pre-loaded with everything relevant before you type a word.
+A typical session generates a lot of signal: decisions, gotchas, research findings, surprises. Without a capture layer, that signal evaporates when the session closes. The "Knowledge capture" skills in the section below exist to turn sessions into durable context. Memory then loads on demand via the routing table (see Pattern 2 above). Next session's context window is pre-loaded with everything relevant before you type a word.
 
 **The loop has two tiers:**
 
@@ -229,6 +254,125 @@ The memory then loads on demand via the routing table (see Pattern 2 above). Nex
 Five months in, the compound is real. New sessions on known topics start productive in seconds because the gotchas, decisions, and architectural patterns are already loaded. The template you're looking at is itself the output of that loop — patterns that earned their way in by proving useful across dozens of real projects.
 
 Your fork will do the same for your work.
+
+---
+
+## The skill stack — core verbs and how they compose
+
+Skills are slash commands that wrap a specific workflow. The starter ships a bunch — grouped below by when they fire.
+
+### Daily rhythm
+
+Skills that bracket the day. These set and close context so sessions start and end cleanly.
+
+| Skill | When it fires | What it does |
+|-------|--------------|--------------|
+| `/bod` | start of day | Reads last session log, recent git, open PRs, parking-lot. Sets focus for the day. |
+| `/pulse` | mid-session breaks | Lightweight status check — mail, workers, reminders. One-line summary. |
+| `/briefing` | "catch me up" | Longer rollup across all persistence layers when returning from time away. |
+| `/eod` | end of day | Reviews the day, writes daily log, surfaces tomorrow's focus, runs `/distill`. |
+
+### Work skills (divergent → convergent)
+
+Skills that do the actual work. Usually chained.
+
+| Skill | Phase | What it does |
+|-------|-------|--------------|
+| `/research` | explore | Dispatches `worker-research` to investigate a topic, writes structured findings to `scratch/research/`. |
+| `/brainstorming` | explore | Interactive ideation before building. Required before creative work. |
+| `/design-lab` | explore | Generates 5+ UI variations in temp routes for side-by-side pick. |
+| `/writing-plans` | converge | Turns spec or brainstorm output into a step-by-step plan. |
+| `/executing-plans` | converge | Runs the plan, dispatching `worker-editor` as needed. |
+| `/review-pr` | verify | Multi-pass review (security, code, verification, context). |
+| `/ship` | deliver | Chain: review → verify → commit → push → PR. |
+
+### Knowledge capture (the compounding loop)
+
+Skills that feed signal back into memory — the layer that turns sessions into durable context.
+
+| Skill | What it captures |
+|-------|-----------------|
+| `/capture` | Research findings → routed to right JD memory file |
+| `/note` | Quick mid-session observation → memory or scratch |
+| `/park` | "Not now but later" → parking-lot, surfaced in `/weekly-review` |
+| `/distill` | Session-end extraction → memory |
+| `/compound` | Feature-level `/distill` — patterns, surprises, decisions |
+| `/devlog` | Daily blog-style entry from session logs + git |
+| `/retro` | Post-incident deep zoom — what happened, what surprised, what to change |
+| `/garden` | Periodic maintenance — stale memory, orphaned scratch, broken refs |
+| `/weekly-review` | Commits + logs + parking-lot, pattern surfacing |
+
+### `/assistant` — the persistent dispatcher
+
+`/assistant` is the one that ties it all together. It's not a task runner, it's a *conversational partner* that holds the thread while routing work out to everything above.
+
+**What it does:**
+
+- Keeps the main conversation responsive — heavy lifting goes to sub-agents via dispatch
+- Routes casual-language intent to the right skill ("check my mail" → Fort Mail call, "let's ship it" → `/ship`)
+- Writes a per-assistant state file to `scratch/assistants/<slug>.md` so focus survives compaction
+- Announces what skill it's reaching for before dispatching ("reaching for `/research` here")
+
+**Different modes it runs in:**
+
+- **Dispatch mode (default).** You talk, it routes. Calls `/research` / `/design-lab` / `/review-pr` on your behalf and results come back into the conversation.
+- **Task-taker mode.** When a brain dump starts — "oh also i need to..." items — it captures to `notes/task-dump.md` with timeline buckets (Now / This Week / Later / Someday) instead of derailing focus.
+- **Multi-assistant.** Supports 2-4 parallel `/assistant` sessions — one focused, one always-on for random asks, a third while waiting on sub-agents. Each is keyed by focus slug. No cross-session bleed.
+- **Named resume.** `/assistant dashboard` re-enters the named assistant at `scratch/assistants/dashboard.md` with full prior context. Ultra-light if < 4hrs old, standard resume otherwise.
+
+**How the skills interact through `/assistant`:**
+
+```
+   ┌─ /bod ───────────────── sets daily context
+   │
+   └─► /assistant ──────────── you talk to this all day
+          │
+          ├─ routes to ─► /research     (dispatch to worker-research)
+          ├─ routes to ─► /design-lab   (5 UI variations)
+          ├─ routes to ─► /brainstorming → /writing-plans → /executing-plans
+          ├─ routes to ─► /review-pr    (4-agent parallel review)
+          ├─ routes to ─► /ship         (commit + push + PR chain)
+          │
+          ├─ captures  ─► /note / /park / /capture (mid-thread)
+          ├─ tracks    ─► task-dump (brain dump capture)
+          │
+   ┌─────┘
+   │
+   └─► /eod → /distill ────── closes the session, writes to memory
+          │
+          └─► next session starts with that memory auto-loaded
+```
+
+The whole point of `/assistant` is that you don't have to remember which skill to reach for. Say what you want in natural language and it picks the right one (or asks if it's ambiguous). The skills are the individual tools, `/assistant` is the one that knows which tool fits the job.
+
+---
+
+## Receipts — five months in
+
+The setup this was extracted from, today:
+
+| Thing | Count |
+|-------|-------|
+| Hooks running | **42** (security / workflow / quality) |
+| Memory topic files | **87** (JD-indexed) |
+| Agents | **12** (4 worker profiles + 8 skill-specialized) |
+| Skills invokable | **45+** |
+| Commits since Dec 2025 | **229** |
+| Session logs captured | **53** |
+| Semantic stream entries (decisions / deploys / ships / research captured via `fort-stream`) | **284** |
+| Concurrent worktrees running on any given day | **2–4** |
+
+The starter ships lighter on purpose — **23 hooks, 17 skills, 4 worker agents**. It grows with you, not at you.
+
+**Model routing — the pricing that makes worker agents a cost lever:**
+
+| Model | Input (per 1M tokens) | Output (per 1M tokens) | Vs Opus |
+|-------|----------------------|------------------------|---------|
+| Haiku 4.5 | $1 | $5 | **15× cheaper** |
+| Sonnet 4 | $3 | $15 | **5× cheaper** |
+| Opus 4 | $15 | $75 | baseline |
+
+On Max plan subscriptions the routing shows up as **headroom**, not dollars saved — every token not burned on a Haiku-sized task is a token available for another parallel dispatch or a longer iteration cycle before hitting usage ceilings. On API billing the same routing is a ~15× discount on that slice of the bill.
 
 ---
 
@@ -248,11 +392,11 @@ fort-starter bootstrap v1.0
 
   Assembling workspace...
   [ok] CLAUDE.md written
-  [ok] .claude/hooks/ -- 10 hooks installed
+  [ok] .claude/hooks/ -- 23 hooks installed
   [ok] .claude/agents/ -- 4 worker agents (Haiku/Sonnet/Opus routed)
   [ok] memory/ -- starter structure created
-  [ok] skills/ -- 20 starter skills linked
-  [ok] bin/ -- utilities installed
+  [ok] skills/ -- 17 starter skills linked
+  [ok] bin/ -- utilities installed (including statusline.sh)
   [ok] settings.json configured
 
   Ready. Run `claude` to start your first session.
@@ -285,6 +429,214 @@ $ claude
   Good catch. Let me add the specific files instead.
   $ git add src/components/Chart.tsx src/lib/data.ts
 ```
+
+---
+
+## Flows — real sessions that show the value
+
+Eight scenarios, each showing a specific value prop. Expand the ones that interest you.
+
+<details>
+<summary><b>Flow 1 — Memory auto-load saves the re-learning tax</b></summary>
+
+**Situation:** opening a session on a project i havent touched in 3 weeks. the chart component needs an update.
+
+**Flow:**
+```
+$ claude
+> hey need to update the chart on the dashboard
+
+  Loaded memory for dashboard (60).
+  Note from memory: chart library silently drops data points over 10k rows.
+  Also: CSS grid gap breaks in the kiosk browser — use margin.
+```
+
+**Payoff:** no re-learning. the two gotchas that wouldve cost me 45 min of "wait why is this broken" are loaded before i type anything.
+
+</details>
+
+<details>
+<summary><b>Flow 2 — Worker agent routing keeps a research-to-ship session efficient</b></summary>
+
+**Situation:** building a new section for the marketing site. need competitive research, then design exploration, then implementation, then review.
+
+**Flow:**
+```
+> research how other permission-system companies handle first-session
+  onboarding
+
+  [dispatches worker-research on Sonnet]
+  [returns 15 min later with notes at scratch/research/onboarding-comp.md]
+
+> /design-lab for 5 variations of the onboarding hero
+
+  [dispatches 5 variations to scratch/design-lab/]
+  [pick winner]
+
+> /brainstorming → /writing-plans → /executing-plans
+
+  [editor worker on Sonnet scoped to projects/web/]
+
+> /review-pr
+
+  [4-pass review, reviewer on Opus]
+  [flags one a11y issue, one copy nit]
+
+> /ship
+```
+
+**Payoff:** mechanical lookups hit Haiku (~15× cheaper per token than Opus). editor on Sonnet (5× cheaper). only the reviewer burns Opus, and only for the ~10 min review window. on Max the savings show up as headroom; on API as a ~10× bill cut for the same output.
+
+</details>
+
+<details>
+<summary><b>Flow 3 — The recurring gotcha that graduated into a hook</b></summary>
+
+**Situation:** kept having claude commit directly to `main` instead of the feature branch when working in worktrees. added a CLAUDE.md instruction. it got ignored ~1 in 8 times anyway.
+
+**Flow:**
+```
+[week 1] "always check you're on the right branch before commit"
+         in CLAUDE.md
+[week 2] it happened again
+[week 3] it happened AGAIN
+[week 3] wrote guard-worktree-branch.sh:
+         - PreToolUse hook on Bash
+         - if command matches `git commit` AND cwd is a worktree
+           AND HEAD is main/master → deny with message
+[week 4+] never happened again
+```
+
+**Payoff:** CLAUDE.md was saying "dont do X" and ~1/8 times it did X anyway. the hook made "dont do X" into "cant do X." havent force-pushed to main since.
+
+</details>
+
+<details>
+<summary><b>Flow 4 — Research once, benefit for months</b></summary>
+
+**Situation:** spent 2 hours reverse-engineering a sketchy vendor API. cookies, session tokens, undocumented endpoints.
+
+**Flow:**
+```
+[session 1]
+> /research the vendor API auth flow
+
+  [worker-research dispatches, 90 min of back-and-forth]
+  [findings land in scratch/research/vendor-api.md]
+
+> /capture
+
+  "Save findings? Routes to memory/67-vendor-apis.md (JD 67)."
+  [yes]
+
+[3 months later, new session touching projects/vendor-client/]
+
+  Loaded memory for vendor-apis (67).
+  Auth flow: login → /api/v2/sessions → cookie → CSRF header required.
+  Gotcha: session expires silently after 20 min, re-auth without prompt.
+```
+
+**Payoff:** three months later, starting a new integration, i dont re-derive any of it. the silent-expiration trap especially — if i hit that fresh it wouldve been another long afternoon.
+
+</details>
+
+<details>
+<summary><b>Flow 5 — Design lab for UI direction</b></summary>
+
+**Situation:** tasked with refreshing a page but not sure which direction to go. i have opinions but want to see variations before committing.
+
+**Flow:**
+```
+> /design-lab for the homepage hero — 5 directions, varied
+
+  [generates 5 HTML variations in scratch/design-lab/homepage/]
+  [each has a different typographic + layout approach]
+
+> [open all 5 in browser, compare]
+> "i like #3's typography and #1's layout combined"
+
+> /design-lab synthesize 3+1
+
+  [generates a synthesis, writes an implementation plan]
+
+> /executing-plans
+```
+
+**Payoff:** got to see a few directions before committing. if id just built what came to mind first id have landed somewhere safe, fine, forgettable. this way i have the ability to Nx my concepts in and find novel ideas.
+
+</details>
+
+<details>
+<summary><b>Flow 6 — Multi-pass review catches what one pass missed</b></summary>
+
+**Situation:** solo project, no team review. built a new sync pipeline. want to ship but unsure of quality.
+
+**Flow:**
+```
+> /review-pr
+
+  [dispatches 4 specialized agents in parallel:]
+  [- security-auditor on Opus: checks secrets, injection, permissions]
+  [- code-reviewer on Opus: correctness, style, patterns]
+  [- verifier on Sonnet: runs tests, lints, type-checks]
+  [- context-checker on Sonnet: reads memory for this area, flags drift]
+
+  [synthesizes report — 1 critical, 3 suggestions]
+  [critical: race condition in the token refresh, exact file:line]
+
+> fix critical, suggestions deferred
+
+> /ship
+```
+
+**Payoff:** caught a race condition in the token refresh that i never wouldve spotted. four agents looking at the same code from different angles, one found it. costs more than skipping review, costs way less than a prod race condition.
+
+</details>
+
+<details>
+<summary><b>Flow 7 — The compounding payoff at month 5</b></summary>
+
+**Situation:** month 5 of the setup. starting a new feature on a project i havent touched in 10 weeks.
+
+**Flow:**
+```
+> claude
+> need to add a new sync strategy to the pipeline
+
+  Loaded memory for data-pipelines (57).
+  Recent decisions: 15min poll interval, exponential backoff on 429s.
+  Active bug: timestamp field gets truncated to seconds in postgres —
+   use stored_at_ms for millisecond precision.
+  Known gotchas: 8 listed.
+```
+
+**Payoff:** "new session on old topic" used to feel like "oh no, i have to page everything back in." now it feels like "cool, what are we doing today." five months in, this is the biggest shift in how i work.
+
+</details>
+
+<details>
+<summary><b>Flow 8 — /distill catches what i didnt know was worth saving</b></summary>
+
+**Situation:** end of a long debugging session. fixed the bug, exhausted.
+
+**Flow:**
+```
+[stop hook detects session ended without /distill, queues for next session]
+
+[next session start]
+  Previous session queued distill.
+  [runs /distill as background agent]
+
+  Captured to memory/57-data-pipelines.md:
+  - the scraper was dropping rows silently when upstream API returned 429
+  - root cause: retry loop didnt log exhaustion
+  - fix: alert on all-keys-exhausted (commit abc1234)
+  - gotcha: exhaustion alerts once per container lifecycle, not per run
+```
+
+**Payoff:** i wasnt gonna remember any of that. the commit has the fix. the WHY — "silent drop" as a signature, the specific retry loop behavior — wouldve been gone by next month. distill caught it without me having to sit down and write a postmortem.
+
+</details>
 
 ---
 
@@ -349,7 +701,7 @@ my-workspace/
 │   ├── distill.md
 │   ├── research.md
 │   └── ...
-├── bin/                       # Shell utilities
+├── bin/                       # Shell utilities (includes statusline.sh)
 ├── notes/                     # Scratch notes, parking lot
 ├── logs/                      # Session logs (auto-generated)
 ├── projects/                  # Your active codebases
@@ -393,6 +745,7 @@ A numbering system for organizing topics. Each category gets a two-digit number 
 
 - [SpiceBox](https://github.com/authzed/spicebox) -- Fine-grained permissions and sandboxing for Claude Code. If fort-starter is the workspace, SpiceBox is the security perimeter: hook-based permission enforcement, macOS sandbox profiles, and network-level controls. Complementary approaches to the same goal of making AI coding agents production-grade.
 - [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code) -- Official docs for hooks, CLAUDE.md, and configuration
+- [Claude Usage Tracker](https://github.com/hamed-elfayome/Claude-Usage-Tracker) -- Longitudinal usage reports by @hamed-elfayome, complements the bundled statusline
 - [Johnny Decimal](https://johnnydecimal.com/) -- The numbering system used for memory organization
 - [Conventional Commits](https://www.conventionalcommits.org/) -- The commit format enforced by the starter hooks
 
