@@ -84,6 +84,8 @@ if any of it felt heavy i wouldnt still be using it 5 months later. the design s
 ## The five layers
 
 ```
+                               ⚑
+                               │
 ┌─────────────────────────────────────────────────────────────┐
 │  5. CLI            bin/                  Shell utilities     │
 ├─────────────────────────────────────────────────────────────┤
@@ -323,9 +325,9 @@ Skills that feed signal back into memory — the layer that turns sessions into 
 **How the skills interact through `/assistant`:**
 
 ```
-   ⚑
-   │
-   ┌─ /bod ───────────────── sets daily context
+               ⚑
+               │
+   ┌─ /bod ────┴──────────── sets daily context
    │
    └─► /assistant ──────────── you talk to this all day
           │
