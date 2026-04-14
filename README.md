@@ -6,6 +6,8 @@ A template for building a persistent AI workspace on top of [Claude Code](https:
 
 This was extracted from a personal setup that's been in daily use since December 2025. The patterns here aren't theoretical -- they've survived five months of real work across dozens of projects.
 
+> _Heads up: this is a WIP and an ever-evolving project. The setup it was extracted from changes weekly, and this template tracks along with it. Pin a commit if you need stability._
+
 ---
 
 ## Why infrastructure, not just a prompt
@@ -301,6 +303,14 @@ The concepts (persistent memory, hook-based enforcement, skill-based workflows) 
 
 **How much does this cost in context window?**
 CLAUDE.md and rules load on every session -- budget ~2-3k tokens. Memory files load on demand. Skills load only when invoked. Designed to minimize baseline context usage.
+
+**What about overall token usage?**
+This is a token-heavy workflow. Sub-agent dispatch, automatic memory loading, and session-end `/distill` cycles all spend tokens -- a session that fans out two or three parallel research agents can easily 5-10x a chat-style session. Plan accordingly: Claude Max's higher tier for daily use, or watch your billing if you're on the API. The tradeoff is intentional -- the template optimizes for depth and continuity, not minimum spend.
+
+Two tools help you stay aware of what you're spending:
+
+- **Bundled statusline** -- `core/bin/statusline.sh` ships with the template and is wired up by `fort-bootstrap`. It renders a live two-line bar: context %, token count, and working directory on top; model, session duration, and accumulated cost on the bottom. Color tiers (green → amber → red) trigger at thresholds so you catch runaway sessions before the bill lands.
+- **[Claude Usage Tracker](https://github.com/hamed-elfayome/Claude-Usage-Tracker)** -- separate project by @hamed-elfayome that gives you longitudinal usage reports (per session, per day, per model). Good complement to the in-session statusline when you want a weekly rollup.
 
 **Can I use this for a team?**
 Yes. The repo is git-based, so team conventions, shared hooks, and common memory files work naturally with branches and pull requests.

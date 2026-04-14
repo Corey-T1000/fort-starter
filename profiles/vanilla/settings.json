@@ -17,5 +17,10 @@
       "WebSearch"
     ]
   },
-  "enableAllProjectMcpServers": false
+  "enableAllProjectMcpServers": false,
+  "statusLine": {
+    "type": "command",
+    "command": "__FORT_ROOT__/core/bin/statusline.sh",
+    "padding": 0
+  }
 }
