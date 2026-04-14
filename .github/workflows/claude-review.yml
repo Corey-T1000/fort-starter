@@ -1,0 +1,45 @@
+name: Claude Code Review
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    name: claude-review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          # Pick one:
+          #   anthropic_api_key:       for API billing
+          #   claude_code_oauth_token: for Claude Max subscribers (generate via `claude setup-token`)
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Review this PR as a senior engineer.
+
+            Focus on:
+            - Correctness (bugs, edge cases, regressions)
+            - Security (secrets, injection, unsafe operations, permission scope)
+            - Design (clarity, consistency with existing patterns in this repo)
+            - Documentation drift (README/docs matching code changes)
+
+            Flag severity as:
+            - Critical: must fix before merge (breaks security, correctness, or user trust)
+            - Important: should fix before merge (quality, maintainability)
+            - Suggestion: nice-to-have (style, polish)
+
+            If you find Critical issues, request changes via your PR review.
+            If all findings are Important or Suggestion, approve with comments.
+            Be specific: file, line, what's wrong, what to do instead.
+
+            Repo context: this is a public template for building persistent AI workspaces
+            on top of Claude Code. Protect the patterns it's teaching — README prose and
+            example code should stay consistent with each other.
