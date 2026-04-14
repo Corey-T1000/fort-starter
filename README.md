@@ -205,6 +205,33 @@ Pair this with SpiceBox for OS-level permission enforcement (different filesyste
 
 ---
 
+## The compounding loop — a workspace that teaches itself
+
+The infrastructure above is the scaffolding. What makes the setup actually compound over time is a handful of skills that feed signal back into the system. The Fort is semi self-improving — every session leaves the next session smarter.
+
+A typical session generates a lot of signal: decisions, gotchas, research findings, surprises. Without a capture layer, that signal evaporates when the session closes. These slash commands turn sessions into durable context:
+
+| Skill | What it does |
+|-------|--------------|
+| `/research` | Dispatches a sub-agent to investigate a topic and write findings to `scratch/research/`. Main thread stays responsive; results come back structured with sources. |
+| `/capture` | Takes recent research or discoveries and routes them into the right `memory/XX-topic.md` by JD number. Prompts before writing. |
+| `/distill` | Runs at session end. Reads the session log, git diff, and scratch writes; extracts what's worth keeping; writes it to the right memory file. |
+| `/compound` | Feature-level `/distill` — captures patterns, surprises, and decisions after finishing a chunk of work. |
+| `/garden` | Periodic maintenance. Flags stale memory, orphaned scratch files, broken references. Keeps the knowledge base honest. |
+
+The memory then loads on demand via the routing table (see Pattern 2 above). Next session's context window is pre-loaded with everything relevant before you type a word.
+
+**The loop has two tiers:**
+
+1. **Knowledge loop (fast).** Research → capture → memory → auto-load next session. Days.
+2. **Infrastructure loop (slow).** When a CLAUDE.md instruction keeps getting ignored, promote it to a hook. When a multi-step workflow stabilizes across several sessions, extract it into a skill. When a failure mode bites twice, write a memory entry with the fix. Weeks to months.
+
+Five months in, the compound is real. New sessions on known topics start productive in seconds because the gotchas, decisions, and architectural patterns are already loaded. The template you're looking at is itself the output of that loop — patterns that earned their way in by proving useful across dozens of real projects.
+
+Your fork will do the same for your work.
+
+---
+
 ## What it actually looks like
 
 ### Setup
