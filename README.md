@@ -323,6 +323,8 @@ Skills that feed signal back into memory — the layer that turns sessions into 
 **How the skills interact through `/assistant`:**
 
 ```
+   ⚑
+   │
    ┌─ /bod ───────────────── sets daily context
    │
    └─► /assistant ──────────── you talk to this all day
