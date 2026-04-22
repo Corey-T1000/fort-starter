@@ -259,6 +259,63 @@ Your fork will do the same for your work.
 
 ---
 
+## Memory architecture — how the loop actually moves data
+
+The compounding loop above is the user-facing story. Under it sits a compiler-style pipeline that moves session signal into queryable knowledge. Useful to understand because it tells you where to look when something seems lost, and where to add a stage when you outgrow the defaults.
+
+```
+   source                compiler              wiki              index             linter             archive
+┌──────────┐         ┌──────────────┐      ┌──────────┐      ┌──────────┐      ┌──────────┐      ┌──────────┐
+│  logs/   │         │  /distill    │      │ memory/  │      │MEMORY.md │      │ memory   │      │ your     │
+│  session │ ──────► │  +           │ ───► │ XX-*.md  │ ───► │ routing  │ ───► │ hygiene  │ ───► │ durable  │
+│  digest  │         │  /narrate    │      │ session_ │      │  table   │      │  checks  │      │ synthesis│
+└──────────┘         └──────────────┘      │  *.md    │      └──────────┘      └──────────┘      │  layer   │
+                                            └──────────┘                                          └──────────┘
+                                                 ▲                                                     ▲
+                                                 │                                                     │
+                                            queried at runtime                                    optional, point
+                                            via Read / Grep / `/search-fort`                      `$FORT_KNOWLEDGE_BASE`
+                                                                                                  at your KB
+```
+
+**Stages:**
+
+1. **Source** — `logs/YYYY-MM-DD.md` (commit + session events from hooks) + per-session digests + the raw transcript.
+2. **Compiler — dual extraction.** Two complementary skills run on session end:
+   - `/distill` reads files + git + the session log and writes operational facts into JD-numbered topic files.
+   - `/narrate` reads the *transcript itself* and writes the conversational arc — implicit acceptances, one-line reframings, rejected alternatives — into `memory/session_<date>_<slug>.md`.
+   Both fire because each catches what the other misses. `/distill` alone loses the reasoning trail. `/narrate` alone loses the file-level deltas.
+3. **Wiki** — `memory/XX-topic.md` (operational, JD-indexed) and `memory/session_*.md` (narratives, flag-tagged). What future sessions actually query.
+4. **Index** — `MEMORY.md` is the routing table. First file edit on a matching path auto-loads the relevant memory. No vector DB required at the default tier.
+5. **Linter** — periodic memory hygiene checks (broken refs, orphaned files, stale topics) keep the wiki query-clean. Run via `/garden`.
+6. **Archive** — your durable synthesis layer. The starter doesn't bundle one; if you keep an Obsidian vault or similar, point `$FORT_KNOWLEDGE_BASE` at it and the cross-check rule in `rules/workflow-intelligence.md` will use it.
+
+**AAAK Flags — making load-bearing moments findable.**
+
+Session narratives carry a `Flags: [...]` frontmatter field with a closed vocabulary:
+
+- `PIVOT` — course change
+- `DECISION` — load-bearing choice with rationale
+- `ORIGIN` — first-mention of a pattern that becomes load-bearing
+- `CORE` — fundamental concept underlying downstream decisions
+- `SENSITIVE` — sharp-edge moments (mistakes, retros, auth/PII)
+
+The shape lets you ask "show me every PIVOT in the last month" instead of grepping prose for tone shifts. Closed set on purpose — every new flag dilutes the signal.
+
+### Retrieval — three layers, escalate by question shape
+
+| Question shape | Reach for | Why |
+|---|---|---|
+| Crisp keyword, known topic | `/search-fort` (Read / Grep) | Sub-100ms over local memory files |
+| Vague, vibe-recall, "that session where..." | `/recall` | Agent-as-retriever scans narratives, filters by Flags |
+| Outgrown agent-scan budgets (hundreds of narratives) | Vector store (e.g. MemPalace) | Optional capstone — see below |
+
+**Capstone — when /recall stops scaling.** If your narrative corpus outgrows what an agent can scan in a single dispatch, the personal Fort layers a vector-backed semantic store on top. [MemPalace](https://github.com/Corey-T1000/claudes-fort) (the personal Fort's plugin) provides ChromaDB-backed semantic recall with launchd-driven re-mining and Flag-aware filtering. See `services/mempalace-bridge/` in [Corey's Fort](https://github.com/Corey-T1000/claudes-fort) for the install pattern. Not bundled here — it's Python venv + ChromaDB + ~672 MB of dependencies, which is the right tradeoff at scale and the wrong one at zero.
+
+The default starter retrieval — `/search-fort` for crisp keywords, `/recall` for vibe queries — is enough for the first several months of use. Graduate when you actually feel the budget, not before.
+
+---
+
 ## The skill stack — core verbs and how they compose
 
 Skills are slash commands that wrap a specific workflow. The starter ships a bunch — grouped below by when they fire.
@@ -293,7 +350,8 @@ Skills that feed signal back into memory — the layer that turns sessions into 
 | `/capture` | Research findings → routed to right JD memory file |
 | `/note` | Quick mid-session observation → memory or scratch |
 | `/park` | "Not now but later" → parking-lot |
-| `/distill` | Session-end extraction → memory |
+| `/distill` | Session-end extraction → JD-numbered memory (file-level signal) |
+| `/narrate` | Session-end extraction → `memory/session_*.md` (transcript-level signal: reframings, pivots, AAAK Flags) |
 | `/compound` | Feature-level `/distill` — patterns, surprises, decisions (plugin skill) |
 | `/retro` | Post-incident deep zoom — what happened, what surprised, what to change |
 | `/garden` | Periodic maintenance — stale memory, orphaned scratch, broken refs |
