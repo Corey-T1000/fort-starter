@@ -25,30 +25,65 @@ What doesn't count (skip the prompt):
 - Reading files that are already in memory
 - Confirming something already documented
 
-## Knowledge Base Cross-Check (Read Path)
+## Retrieval Routing (Read Path)
 
-When answering questions or making claims about a JD topic from memory, also check the external knowledge base for relevant notes:
+Three layers answer "what do we know about X", each with a different cost/shape profile. Route by question shape; escalate only when the cheaper layer comes up short.
+
+### Layer 1 — `memory/XX-topic.md` (always first)
+
+Operational, current, loaded on demand by the MEMORY.md routing table. Queried via `Read` / `Grep` / `/search-fort`. Use this for: "what's our setup for Y", "what did we decide about Z". If the topic file is thin (fewer than 5 facts) or stale (>7 days since update), escalate to Layer 2.
+
+### Layer 2 — Your durable synthesis layer
+
+Whatever long-form knowledge base you keep alongside the workspace — Obsidian vault, Notion, a separate git repo of human-edited notes. The starter doesn't bundle one; point `$FORT_KNOWLEDGE_BASE` at yours if you have it.
 
 ```bash
-# Find recent knowledge base notes for a JD topic
+# Example: find recent knowledge base notes for a JD topic
 find "${FORT_KNOWLEDGE_BASE}" -path "*/{JD}.01 *" -name "*.md" -newer <7-days-ago> 2>/dev/null
 ```
 
-**Knowledge base JD path mapping** (set `$FORT_KNOWLEDGE_BASE` to your knowledge base directory):
-- `50-59` → `$FORT_KNOWLEDGE_BASE/50 Fort Infrastructure/{XX}.01 {Topic Name}/`
-- `60-73` → `$FORT_KNOWLEDGE_BASE/60 Fort Projects/{XX}.01 {Topic Name}/`
+Suggested JD path mapping (mirror your memory numbering):
+- `50-59` → `$FORT_KNOWLEDGE_BASE/50 Infrastructure/{XX}.01 {Topic Name}/`
+- `60-69` → `$FORT_KNOWLEDGE_BASE/60 Projects/{XX}.01 {Topic Name}/`
 
-**When to cross-check:**
-- Before making confident claims about a topic's current state
-- When memory facts feel sparse or stale for the topic
-- When the question is "how does X work" or "what's our setup for Y"
+Use Layer 2 when: the memory file is thin/stale, the question is "how does X work" or "what's our setup for Y", or before making confident claims about a topic's current state.
 
-**What to do with findings:**
-- If the knowledge base has content not in memory: read it, incorporate it, flag the gap
-- If the knowledge base contradicts memory: surface the conflict to the user
-- If the knowledge base is empty for the topic: proceed normally, no mention needed
+### Layer 3 — Semantic / vibe recall
 
-Don't cross-check for trivial lookups or topics you just wrote to.
+Questions with **no keyword handle**: "that session where things went sideways", "which session had the pattern of X", "who worked on Y and when". Escalate to Layer 3 when Layers 1-2 return empty or the query is inherently impressionistic.
+
+The floor is `/recall` — agent-as-retriever. The agent scans `memory/session_*.md` narratives directly, optionally filtered by `Flags:` frontmatter. No infrastructure required.
+
+When the narrative corpus outgrows agent-scan budgets (typically several hundred session files), graduate to a vector-backed semantic store. The personal Fort uses MemPalace (ChromaDB-backed) — see [Corey's Fort](https://github.com/Corey-T1000/claudes-fort) for the install pattern. Until then, `/recall` is enough.
+
+### What to do with findings across layers
+
+- **Found in Layer 1 (sufficient)**: use it; stop.
+- **Layer 2 has content not in Layer 1**: incorporate it, flag the gap.
+- **Layer 2 contradicts Layer 1**: surface the conflict to the user; don't silently reconcile.
+- **Layer 3 hit with no L1/L2 counterpart**: treat as recall pointer — go back and read the actual file it referenced; don't quote a vector summary as fact.
+- **All three empty**: proceed normally, no mention needed.
+
+Don't escalate for trivial lookups, topics you just wrote to, or crisp-term queries that grep handles well.
+
+## Session Narrative Flags (AAAK vocabulary)
+
+Session-narrative files (written by `/narrate`) carry a `Flags: [...]` field in frontmatter. The flags label *what mattered* in the session so future retrieval can find load-bearing moments without re-reading every file. Five values, applied at write time:
+
+- `PIVOT` — course change, reframing, the moment when the approach flipped
+- `DECISION` — load-bearing choice with rationale; future-you needs to find this
+- `ORIGIN` — first-mention of a pattern or concept that becomes load-bearing later
+- `CORE` — fundamental concept underlying multiple downstream decisions
+- `SENSITIVE` — sharp-edge moments; mistakes, retros, lessons-from-pain (and auth/PII content with sharing constraints)
+
+**Typical counts:**
+- Most sessions: 1-2 flags (usually `DECISION`)
+- Big pivots: 2-3 flags (`PIVOT, DECISION, CORE`)
+- Pure execution / no reframings: `[]` is fine — don't flag for flag's sake
+
+**Vocabulary discipline.** This is a closed set on purpose. The signal-to-noise ratio collapses if every session invents new flags. Grow the vocabulary deliberately through usage review, not from individual narrate runs.
+
+**Consumed by:** `/recall` (filter narratives by flag) and `/search-fort` (boost ranking on flag matches). Both layers know how to read the field.
 
 ## Proactive Memory Loading & Tab Naming
 
