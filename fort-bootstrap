@@ -169,28 +169,10 @@ install_prereq() {
 select_profile() {
   header "Profile Selection"
 
-  echo "  Who is this Fort for?"
+  PROFILE="vanilla"
+  echo "  Only the ${BOLD}vanilla${NC} profile ships with this template."
+  echo "  Add more in ${BOLD}profiles/<name>/${NC} (mirror profiles/vanilla/) to extend."
   echo ""
-  echo -e "    1) ${BOLD}corey${NC}    — full power-user setup"
-  echo -e "    2) ${BOLD}ilyssa${NC}   — household + creative workflows"
-  echo -e "    3) ${BOLD}server${NC}   — always-on, headless, scheduled tasks"
-  echo -e "    4) ${BOLD}vanilla${NC}  — clean starter (shareable)"
-  echo ""
-
-  local choice
-  read -rp "  > " choice
-
-  case "$choice" in
-    1) PROFILE="corey" ;;
-    2) PROFILE="ilyssa" ;;
-    3) PROFILE="server" ;;
-    4) PROFILE="vanilla" ;;
-    *)
-      err "Invalid choice. Pick 1-4."
-      select_profile
-      return
-      ;;
-  esac
 
   echo "$PROFILE" > "$FORT_ROOT/.fort-profile"
   log "Profile set: $PROFILE"
