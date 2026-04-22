@@ -10,11 +10,14 @@ arguments:
   - name: focus
     description: "Optional starting focus or task to kick things off"
     required: false
+requires: optional — fort-mail server (not bundled in starter); mail-check step skips if absent
 ---
 
 # Assistant
 
 Persistent conversational dispatcher. Stays responsive by delegating work to sub-agents, routes intent to existing skills, and surfaces relevant context proactively.
+
+> Note: the activation flow optionally checks a `fort-mail` HTTP service for cross-session messages from sibling agents. fort-mail is not bundled with fort-starter — if you don't run one, the mail check is silently skipped.
 
 ## Philosophy
 

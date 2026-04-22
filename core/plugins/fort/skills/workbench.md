@@ -27,7 +27,7 @@ Before building, determine the playground shape. If the user specifies a shape o
 |---|---|---|
 | **Explorer** (default) | Single HTML file, inline everything | Pure visual recon, "does this idea work?" |
 | **Next.js** | App Router, Tailwind, components in `/components` | Building pages, layouts, interactive features |
-| **Dashboard widget** | React component matching home-dashboard widget patterns, TanStack Query | New dashboard cards |
+| **Dashboard widget** | React component matching your dashboard's widget patterns + your data-fetching layer | New dashboard cards |
 | **Standalone tool** | Vite + React, same structure as `projects/` | New self-contained tools |
 
 **When to ask:** If the topic clearly maps to a shape (e.g., "new dashboard card" = Dashboard widget, "CSS experiment" = Explorer), just use it. Only ask when ambiguous between non-Explorer shapes:
@@ -76,15 +76,15 @@ Output: `scratch/playground/<name>/`
 ```
 scratch/playground/<name>/
   components/
-    <WidgetName>.tsx    # The widget component
+    <WidgetName>.tsx          # The widget component
     <WidgetName>.stories.tsx  # Optional: visual test
   hooks/
-    use<DataSource>.ts  # TanStack Query hook with mock data
-  index.tsx             # Preview harness
+    use<DataSource>.ts        # Data-fetching hook with mock data
+  index.tsx                   # Preview harness
   package.json
 ```
 
-- Match home-dashboard patterns: card wrapper, TanStack Query for data, Tailwind styling
+- Match your target dashboard's patterns: card wrapper, your data-fetching layer (TanStack Query, SWR, or whatever you use), styling system
 - Include mock data that mirrors the real API shape
 - Widget should drop into the dashboard grid with no changes
 

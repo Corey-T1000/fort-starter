@@ -1,9 +1,23 @@
 ---
 name: compress
 description: Compress images via CLI or web UI. Use when the user says "compress", "shrink this image", "make this smaller", "optimize this", or needs to reduce image file size.
+requires: pngquant + sharp (system deps, install separately)
 ---
 
 # Compress — Image Compression
+
+> ## Prerequisites
+> This skill calls `pngquant` (PNG quantizer) and `sharp` (Node image library). Install before using:
+> ```bash
+> # macOS
+> brew install pngquant
+> npm install -g sharp-cli
+>
+> # Debian/Ubuntu
+> sudo apt-get install pngquant
+> npm install -g sharp-cli
+> ```
+> The companion CLI lives at `projects/compress/` — clone or scaffold that project to use the web UI.
 
 Local image compression tool at `projects/compress/`.
 

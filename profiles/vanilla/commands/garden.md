@@ -3,7 +3,7 @@ name: garden
 description: |
   Use when the user says "garden", "clean up", "hygiene", "prune", "tidy up",
   "things feel messy", or wants periodic codebase maintenance.
-  Finds stale branches, aging beads, orphaned scratch files, old worktrees, and stale memory.
+  Finds stale branches, orphaned scratch files, old worktrees, and stale memory files.
 user_invocable: true
 context: fork
 agent: general-purpose
@@ -43,15 +43,6 @@ git branch --merged main | grep -v "main\|master\|\*"
 
 # Branches with no commits in 2+ weeks
 git for-each-ref --sort=-committerdate --format='%(refname:short) %(committerdate:relative)' refs/heads/
-```
-
-**Aging beads:**
-```bash
-# Open issues (check dates for anything > 2 weeks old)
-bd list --status=open
-
-# In-progress issues that might be stale
-bd list --status=in_progress
 ```
 
 **Orphaned scratch files:**
@@ -117,10 +108,6 @@ Group findings by category with clear severity:
 - `feat/old-thing` — merged, last commit 3 weeks ago
 - `fix/that-bug` — merged, last commit 1 month ago
 
-### Beads (X aging)
-- beads-042: "Add caching layer" — open 3 weeks, no activity
-- beads-038: "Refactor auth" — in_progress 2 weeks, stale?
-
 ### Scratch (X items, Y old)
 - scratch/design-lab/old-experiment/ — last modified 2 weeks ago
 - scratch/random-test.html — last modified 1 month ago
@@ -156,7 +143,7 @@ Use **AskUserQuestion** for each category that has findings:
   - **Pick individually** — "I'll choose which to keep"
   - **Skip** — "Leave branches alone"
 
-For destructive actions (deleting branches, removing worktrees, closing beads), always confirm before acting. Never auto-delete.
+For destructive actions (deleting branches, removing worktrees), always confirm before acting. Never auto-delete.
 
 ### Step 4: Execute Cleanup
 
@@ -165,12 +152,11 @@ Based on the user's choices:
 **Branches**: `git branch -d <branch>` (safe delete, only merged)
 **Worktrees**: `git worktree remove <path>`
 **Scratch**: Move old items to trash or delete (confirm first)
-**Beads**: Offer to close stale issues with a reason
 **Memory**: Flag for review, don't auto-modify
 
 ### Step 5: Summary
 
-> **Garden done.** Pruned X branches, cleaned Y scratch items, flagged Z aging beads.
+> **Garden done.** Pruned X branches, cleaned Y scratch items, flagged Z stale memory files.
 > Next garden recommended: [1-2 weeks from now]
 
 ## What Garden Does NOT Do
