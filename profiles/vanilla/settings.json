@@ -37,7 +37,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit",
+        "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
             "type": "command",
@@ -50,6 +50,12 @@
             "command": "${FORT_ROOT}/core/hooks/guard-env-files.sh",
             "timeout": 5000,
             "statusMessage": "Checking for sensitive file writes..."
+          },
+          {
+            "type": "command",
+            "command": "${FORT_ROOT}/core/hooks/guard-main-worktree.sh",
+            "timeout": 5000,
+            "statusMessage": "Checking main-worktree edit guardrail..."
           }
         ]
       },
@@ -115,7 +121,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Write|Edit",
+        "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
             "type": "command",
@@ -123,6 +129,11 @@
             "timeout": 60000,
             "statusMessage": "Running tests in background...",
             "async": true
+          },
+          {
+            "type": "command",
+            "command": "${FORT_ROOT}/core/hooks/auto-commit-session-outputs.sh",
+            "timeout": 10000
           }
         ]
       }
