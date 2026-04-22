@@ -1,0 +1,284 @@
+#!/usr/bin/env python3
+"""fort-search — frontmatter + content search over the Fort knowledge base.
+
+Scope:   memory/, notes/, scratch/assistants/, scratch/research/,
+         docs/plans/, logs/
+Exclude: notes/compaction-extracts/, scratch/.board/, scratch/transcripts/,
+         scratch/archive/
+
+Rank tiers (lower = better):
+  1  slug        file stem or frontmatter `Slug` equals query
+  2  title       query substring in Focus/Title/name/description
+  3  content     query matched in file body (via ripgrep)
+  4  fm          query matched in some other frontmatter value
+
+Usage:
+  fort-search [--tag=X] [--status=X] [--jd=X] [--related-to=SLUG]
+              [--limit=N] [--json] [QUERY]
+
+Frontmatter v2 search infrastructure.
+"""
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+FORT_ROOT = Path(os.environ.get("FORT_ROOT", str(Path.home() / "claudes-fort")))
+SEARCH_DIRS = [
+    "memory", "notes", "scratch/assistants", "scratch/research",
+    "docs/plans", "logs",
+]
+EXCLUDE_PREFIXES = [
+    "notes/compaction-extracts", "scratch/.board",
+    "scratch/transcripts", "scratch/archive",
+]
+
+FM_RE = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
+FIELD_RE = re.compile(r"^([A-Za-z][A-Za-z0-9_-]*)\s*:\s*(.*?)\s*(?:#.*)?$")
+
+
+def parse_frontmatter(text: str) -> dict:
+    m = FM_RE.match(text)
+    if not m:
+        return {}
+    fm = {}
+    for line in m.group(1).split("\n"):
+        fm_m = FIELD_RE.match(line)
+        if not fm_m:
+            continue
+        key = fm_m.group(1)
+        val = fm_m.group(2).strip()
+        if val.startswith("[") and val.endswith("]"):
+            inner = val[1:-1].strip()
+            fm[key] = (
+                [] if not inner
+                else [v.strip().strip('"').strip("'") for v in inner.split(",")]
+            )
+        elif len(val) >= 2 and val[0] == val[-1] and val[0] in ("\"", "'"):
+            fm[key] = val[1:-1]
+        else:
+            fm[key] = val
+    return fm
+
+
+def list_candidates() -> list[Path]:
+    files = []
+    for d in SEARCH_DIRS:
+        root = FORT_ROOT / d
+        if not root.is_dir():
+            continue
+        for p in root.rglob("*.md"):
+            rel = str(p.relative_to(FORT_ROOT))
+            if any(rel.startswith(pfx) for pfx in EXCLUDE_PREFIXES):
+                continue
+            files.append(p)
+    return files
+
+
+def match_flags(fm: dict, tag: str, status: str, jd: str) -> bool:
+    if tag:
+        tags = fm.get("Tags") or fm.get("tags") or []
+        if isinstance(tags, str):
+            tags = [tags]
+        if not any(t.lower() == tag.lower() for t in tags):
+            return False
+    if status:
+        s = str(fm.get("Status") or fm.get("status") or "").lower()
+        if s != status.lower():
+            return False
+    if jd:
+        fj = str(fm.get("JD") or fm.get("jd") or "").strip()
+        if fj != str(jd).strip():
+            return False
+    return True
+
+
+def match_related(fm: dict, slug: str) -> bool:
+    targets = []
+    for k in ("Parent", "Spawned", "Related", "Supersedes"):
+        v = fm.get(k)
+        if v is None:
+            continue
+        if isinstance(v, list):
+            targets.extend(v)
+        else:
+            targets.append(v)
+    sl = slug.lower()
+    return any(
+        isinstance(t, str) and t and t.strip().lower() == sl for t in targets
+    )
+
+
+def rg_content_hits(pattern: str, files: list[Path]) -> dict:
+    if not files or not pattern:
+        return {}
+    # Feed file list via stdin to avoid argv blowup.
+    file_list = "\n".join(str(f) for f in files)
+    cmd = [
+        "rg", "--no-heading", "-n", "-i", "--max-count=1",
+        "--files-from=-", "-e", pattern,
+    ]
+    # rg's --files-from and -e don't combine directly; do it via xargs-style.
+    # Simpler: invoke rg with the pattern and explicit file args in chunks.
+    hits = {}
+    CHUNK = 500
+    for i in range(0, len(files), CHUNK):
+        chunk = files[i:i + CHUNK]
+        r = subprocess.run(
+            ["rg", "--no-heading", "-n", "-i", "--max-count=1", pattern, "--"]
+            + [str(f) for f in chunk],
+            capture_output=True, text=True,
+        )
+        for line in r.stdout.split("\n"):
+            if not line or ":" not in line:
+                continue
+            parts = line.split(":", 2)
+            if len(parts) < 3:
+                continue
+            path, lineno, content = parts
+            try:
+                if path not in hits:
+                    hits[path] = (int(lineno), content.strip())
+            except ValueError:
+                pass
+    return hits
+
+
+def fm_text_match(fm: dict, query: str) -> tuple[str, str] | None:
+    qlow = query.lower()
+    for k, v in fm.items():
+        if isinstance(v, list):
+            for item in v:
+                if qlow in str(item).lower():
+                    return (k, f"{k}: [... {item} ...]")
+        elif v and qlow in str(v).lower():
+            return (k, f"{k}: {v}")
+    return None
+
+
+def rank_file(p: Path, fm: dict, query: str, content_hit):
+    qlow = query.lower()
+    slug = str(fm.get("Slug") or fm.get("slug") or "").lower()
+    stem = p.stem.lower()
+    if slug == qlow or stem == qlow:
+        return (1, "slug", 1, slug or stem)
+    for k in ("Focus", "Title", "name", "description"):
+        v = fm.get(k)
+        if v and qlow in str(v).lower():
+            return (2, f"title:{k.lower()}", 1, str(v))
+    if content_hit:
+        return (3, "content", content_hit[0], content_hit[1])
+    fmm = fm_text_match(fm, query)
+    if fmm:
+        return (4, f"fm:{fmm[0]}", 1, fmm[1])
+    return None
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(
+        description="Search Fort knowledge base.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ap.add_argument("--tag", help="Filter by Tags value")
+    ap.add_argument("--status", help="Filter by Status value")
+    ap.add_argument("--jd", help="Filter by JD value")
+    ap.add_argument("--related-to", dest="related_to",
+                    help="Slug to find backlinks / frontmatter refs for")
+    ap.add_argument("--limit", type=int, default=20)
+    ap.add_argument("--json", action="store_true",
+                    help="Emit JSONL instead of human-readable output")
+    ap.add_argument("query", nargs="*",
+                    help="Positional ripgrep content pattern (regex allowed)")
+    args = ap.parse_args()
+
+    query = " ".join(args.query).strip()
+
+    if not any([args.tag, args.status, args.jd, args.related_to, query]):
+        ap.print_usage(sys.stderr)
+        print("\n(specify at least one flag or query)", file=sys.stderr)
+        return 2
+
+    candidates = list_candidates()
+    fm_cache: dict[Path, dict] = {}
+    for p in candidates:
+        try:
+            fm_cache[p] = parse_frontmatter(p.read_text())
+        except (OSError, UnicodeDecodeError):
+            fm_cache[p] = {}
+
+    filtered = [
+        p for p in candidates
+        if match_flags(fm_cache[p], args.tag, args.status, args.jd)
+    ]
+
+    if args.related_to:
+        slug = args.related_to
+        fm_related = {
+            p for p in candidates if match_related(fm_cache[p], slug)
+        }
+        wiki_hits = rg_content_hits(re.escape(f"[[{slug}]]"), candidates)
+        wiki_related = {Path(p) for p in wiki_hits}
+        related_set = fm_related | wiki_related
+        if args.tag or args.status or args.jd:
+            filtered = [p for p in filtered if p in related_set]
+        else:
+            filtered = list(related_set)
+
+    results = []
+    if not query:
+        for p in filtered:
+            fm = fm_cache[p]
+            bits = []
+            if args.tag:
+                bits.append(f"Tag={args.tag}")
+            if args.status:
+                bits.append(f"Status={fm.get('Status') or fm.get('status')}")
+            if args.jd:
+                bits.append(f"JD={fm.get('JD') or fm.get('jd')}")
+            if args.related_to:
+                bits.append(f"→{args.related_to}")
+            results.append((4, "filter-match", p, 1, " | ".join(bits) or "match"))
+    else:
+        content_hits = rg_content_hits(query, filtered) if filtered else {}
+        for p in filtered:
+            ch = content_hits.get(str(p))
+            r = rank_file(p, fm_cache[p], query, ch)
+            if r:
+                tier, label, lineno, excerpt = r
+                results.append((tier, label, p, lineno, excerpt))
+
+    results.sort(key=lambda x: (x[0], str(x[2])))
+    total = len(results)
+    results = results[: args.limit]
+
+    tier_names = {1: "slug", 2: "title", 3: "content", 4: "fm"}
+
+    if args.json:
+        for tier, label, p, lineno, excerpt in results:
+            print(json.dumps({
+                "tier": tier_names.get(tier, str(tier)),
+                "label": label,
+                "path": str(p.relative_to(FORT_ROOT)),
+                "line": lineno,
+                "excerpt": excerpt[:400],
+            }))
+    else:
+        if not results:
+            print("(no hits)", file=sys.stderr)
+            return 1
+        for tier, label, p, lineno, excerpt in results:
+            rel = p.relative_to(FORT_ROOT)
+            print(f"{rel}:{lineno} — tier:{tier_names.get(tier, tier)} "
+                  f"({label})")
+            print(f"  > {excerpt[:200]}")
+        suffix = f" (capped at {args.limit})" if total > args.limit else ""
+        print(f"\n{total} hit(s){suffix}", file=sys.stderr)
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
