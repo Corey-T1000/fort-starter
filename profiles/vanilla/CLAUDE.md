@@ -10,5 +10,4 @@ Read `notes/about-me.md` at session start for context about who you are and how 
 
 - I'll announce which skill or workflow I'm using before invoking it
 - I capture learnings at the end of each session (`/distill`)
-- I track work across sessions using beads (`bd ready` to see what's open)
 - I send notifications via `fort-notify` when something needs your attention

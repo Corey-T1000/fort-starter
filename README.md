@@ -385,7 +385,7 @@ On Max plan subscriptions the routing shows up as **headroom**, not dollars save
 ### Setup
 
 ```
-$ git clone https://github.com/your-username/fort-starter.git my-workspace
+$ git clone https://github.com/Corey-T1000/fort-starter.git my-workspace
 $ cd my-workspace
 $ ./fort-bootstrap --profile=vanilla
 
@@ -649,7 +649,7 @@ $ claude
 ### 1. Clone and bootstrap
 
 ```bash
-git clone https://github.com/your-username/fort-starter.git my-workspace
+git clone https://github.com/Corey-T1000/fort-starter.git my-workspace
 cd my-workspace
 ./fort-bootstrap --profile=vanilla
 ```

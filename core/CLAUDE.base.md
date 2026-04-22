@@ -15,8 +15,7 @@ Personal AI workspace powered by Claude Code.
 ## Quick Context Recovery
 
 ```bash
-bd ready                    # Beads: unblocked issues
-fort-status                 # Shows sandbox, Fort Mail, Beads
+fort-status                 # Shows sandbox, Fort Mail
 ls -lt logs/ | head -5      # Recent session logs
 date +%Y-%m-%d              # Verify current date
 ```
@@ -31,7 +30,6 @@ Session logs: `logs/YYYY-MM-DD.md` — capture context, key decisions, files mod
 
 - `core/` - Shared infrastructure (hooks, rules, bin, plugins)
 - `profiles/` - Per-user configuration
-- `.beads/` - Issue tracking database
 - `memory/` - Personal memory files (local, not synced)
 - `notes/` - Personal notes (local, not synced)
 - `projects/` - Project working directories (local, not synced)

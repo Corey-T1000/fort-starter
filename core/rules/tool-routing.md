@@ -1,10 +1,8 @@
 # Tool Routing
 
 ## Tracking Work
-**Beads** (`bd create`) — multi-session, has blockers, needs follow-up
 **TaskCreate** — quick checklist for this session only
-
-When in doubt → Beads.
+**`notes/parking-lot.md`** — durable cross-session follow-ups
 
 ## Executing Work
 - **Background agent** (`run_in_background`) — research, analysis (default)
@@ -45,11 +43,11 @@ When ambiguous → ask the user.
 - "review this" (own code) → `/requesting-code-review` (single-pass self-review)
 
 ## Workflow Chains
-- "ship it" → `/ship` (orchestrates: review → verify → commit → PR → beads cleanup)
+- "ship it" → `/ship` (orchestrates: review → verify → commit → PR)
   - After external review: `/iterate-pr`
 - "iterate on PR" → `/iterate-pr`
-- "build feature" → check/create beads issue → `/brainstorming` → `/writing-plans` → `/executing-plans`
-- "finish branch" → `/verification-before-completion` → `/finishing-a-development-branch` → check beads for closeable issues
+- "build feature" → `/brainstorming` → `/writing-plans` → `/executing-plans`
+- "finish branch" → `/verification-before-completion` → `/finishing-a-development-branch`
 
 Always confirm chains with the user before starting.
 
