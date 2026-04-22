@@ -5,9 +5,13 @@ description: |
   "what's on my schedule", "am I free", "create a meeting", "block time",
   or any calendar/scheduling request.
 user_invocable: true
+requires: google-calendar MCP server (not bundled — install separately)
 ---
 
 # Calendar
+
+> ## Setup required
+> This skill needs the **Google Calendar MCP server**, which is not bundled with fort-starter. Install it from the [official MCP servers list](https://github.com/modelcontextprotocol/servers) or your preferred provider, then add it to your `.mcp.json` or Claude Code settings. Without it the dispatched sub-agent will return errors when it tries to call calendar tools.
 
 Interface to Google Calendar via MCP sub-agent. The Google Calendar MCP server is NOT loaded in the main session — it lives only in dispatched sub-agents to avoid context bloat (~12 tools).
 

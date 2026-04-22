@@ -5,11 +5,14 @@ description: |
   "call it a day", or is finishing a work session. Reviews the day's work, writes a daily log,
   surfaces tomorrow's focus, then runs /distill for memory capture.
 user_invocable: true
+requires: optional — fort-mail server (not bundled in starter); skill degrades gracefully if absent
 ---
 
 # End of Day
 
 Comprehensive day wrap-up that reviews what shipped, captures the daily log, and sets up tomorrow. Runs `/distill` at the end for memory capture.
+
+> Note: this skill optionally checks a `fort-mail` HTTP service for queued cross-session messages. The fort-mail server is not bundled with fort-starter — if you don't have one running, the mail-check step is silently skipped and the rest of the workflow proceeds normally.
 
 ## When to Use
 
