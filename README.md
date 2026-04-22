@@ -115,7 +115,7 @@ Topic files organized with [Johnny Decimal](https://johnnydecimal.com/) numberin
 
 ### 4. Skills -- skills/
 
-Markdown files that define slash commands -- `/distill`, `/research`, `/ship`, `/garden`. Each skill is a structured prompt that Claude loads on demand (not on every session). Skills keep specialized workflows out of your base context window. You invoke them with `/skill-name` and they guide multi-step processes. The vanilla profile ships with ~17 starter skills. (See "The skill stack" section below for the full taxonomy and how they compose.)
+Markdown files that define slash commands -- `/distill`, `/research`, `/garden`, `/eod`. Each skill is a structured prompt that Claude loads on demand (not on every session). Skills keep specialized workflows out of your base context window. You invoke them with `/skill-name` and they guide multi-step processes. The vanilla profile ships **17 user-invocable skills in `profiles/vanilla/commands/`** plus **13 plugin skills in `core/plugins/fort/skills/`** (loaded by skill name, not as slash commands). (See "The skill stack" section below for the full taxonomy and how they compose.)
 
 ### 5. CLI -- bin/
 
@@ -276,17 +276,13 @@ Skills that bracket the day. These set and close context so sessions start and e
 
 ### Work skills (divergent → convergent)
 
-Skills that do the actual work. Usually chained.
+Skills that do the actual work.
 
 | Skill | Phase | What it does |
 |-------|-------|--------------|
 | `/research` | explore | Dispatches `worker-research` to investigate a topic, writes structured findings to `scratch/research/`. |
-| `/brainstorming` | explore | Interactive ideation before building. Required before creative work. |
-| `/design-lab` | explore | Generates 5+ UI variations in temp routes for side-by-side pick. |
-| `/writing-plans` | converge | Turns spec or brainstorm output into a step-by-step plan. |
-| `/executing-plans` | converge | Runs the plan, dispatching `worker-editor` as needed. |
-| `/review-pr` | verify | Multi-pass review (security, code, verification, context). |
-| `/ship` | deliver | Chain: review → verify → commit → push → PR. |
+
+> The vanilla profile keeps the work-skill set narrow on purpose — `/research` plus the daily-rhythm and capture skills cover the core loop. Other workflow skills referenced in flows below (`/brainstorming`, `/writing-plans`, `/executing-plans`, `/design-lab`, `/review-pr`, `/ship`) are part of Corey's full Fort and are **not bundled in vanilla**. Add them via fork, install from the upstream Fort, or wait for upcoming PRs that promote stabilized skills into the starter.
 
 ### Knowledge capture (the compounding loop)
 
@@ -296,13 +292,13 @@ Skills that feed signal back into memory — the layer that turns sessions into 
 |-------|-----------------|
 | `/capture` | Research findings → routed to right JD memory file |
 | `/note` | Quick mid-session observation → memory or scratch |
-| `/park` | "Not now but later" → parking-lot, surfaced in `/weekly-review` |
+| `/park` | "Not now but later" → parking-lot |
 | `/distill` | Session-end extraction → memory |
-| `/compound` | Feature-level `/distill` — patterns, surprises, decisions |
-| `/devlog` | Daily blog-style entry from session logs + git |
+| `/compound` | Feature-level `/distill` — patterns, surprises, decisions (plugin skill) |
 | `/retro` | Post-incident deep zoom — what happened, what surprised, what to change |
 | `/garden` | Periodic maintenance — stale memory, orphaned scratch, broken refs |
-| `/weekly-review` | Commits + logs + parking-lot, pattern surfacing |
+
+> `/devlog` and `/weekly-review` referenced elsewhere in the docs are not bundled in vanilla — add via fork or wait for upcoming PRs.
 
 ### `/assistant` — the persistent dispatcher
 
@@ -311,13 +307,13 @@ Skills that feed signal back into memory — the layer that turns sessions into 
 **What it does:**
 
 - Keeps the main conversation responsive — heavy lifting goes to sub-agents via dispatch
-- Routes casual-language intent to the right skill ("check my mail" → Fort Mail call, "let's ship it" → `/ship`)
+- Routes casual-language intent to the right skill ("check my calendar" → `/calendar`, "what's the status" → `/pulse`)
 - Writes a per-assistant state file to `scratch/assistants/<slug>.md` so focus survives compaction
 - Announces what skill it's reaching for before dispatching ("reaching for `/research` here")
 
 **Different modes it runs in:**
 
-- **Dispatch mode (default).** You talk, it routes. Calls `/research` / `/design-lab` / `/review-pr` on your behalf and results come back into the conversation.
+- **Dispatch mode (default).** You talk, it routes. Calls `/research` / `/capture` / `/note` on your behalf and results come back into the conversation.
 - **Task-taker mode.** When a brain dump starts — "oh also i need to..." items — it captures to `notes/task-dump.md` with timeline buckets (Now / This Week / Later / Someday) instead of derailing focus.
 - **Multi-assistant.** Supports 2-4 parallel `/assistant` sessions — one focused, one always-on for random asks, a third while waiting on sub-agents. Each is keyed by focus slug. No cross-session bleed.
 - **Named resume.** `/assistant dashboard` re-enters the named assistant at `scratch/assistants/dashboard.md` with full prior context. Ultra-light if < 4hrs old, standard resume otherwise.
@@ -332,10 +328,9 @@ Skills that feed signal back into memory — the layer that turns sessions into 
    └─► /assistant ──────────── you talk to this all day
           │
           ├─ routes to ─► /research     (dispatch to worker-research)
-          ├─ routes to ─► /design-lab   (5 UI variations)
-          ├─ routes to ─► /brainstorming → /writing-plans → /executing-plans
-          ├─ routes to ─► /review-pr    (4-agent parallel review)
-          ├─ routes to ─► /ship         (commit + push + PR chain)
+          ├─ routes to ─► /pulse        (lightweight status check)
+          ├─ routes to ─► /briefing     (longer rollup, "catch me up")
+          ├─ routes to ─► /switch       (context switch between projects)
           │
           ├─ captures  ─► /note / /park / /capture (mid-thread)
           ├─ tracks    ─► task-dump (brain dump capture)
@@ -346,6 +341,8 @@ Skills that feed signal back into memory — the layer that turns sessions into 
           │
           └─► next session starts with that memory auto-loaded
 ```
+
+> Flows below also show `/design-lab`, `/review-pr`, `/ship`, and the `/brainstorming → /writing-plans → /executing-plans` chain. Those skills are not bundled in the vanilla profile — they live in the upstream Fort and may land in future PRs. The flows are kept here as illustrations of how `/assistant` can route once you add them.
 
 The whole point of `/assistant` is that you don't have to remember which skill to reach for. Say what you want in natural language and it picks the right one (or asks if it's ambiguous). The skills are the individual tools, `/assistant` is the one that knows which tool fits the job.
 
@@ -681,39 +678,40 @@ claude
 
 ## Project structure
 
+The repo ships **sources** under `core/` and `profiles/`. Running `fort-bootstrap` assembles those into the live `.claude/`, `plugins/`, `memory/`, and `bin/` directories your sessions actually use.
+
 ```
 my-workspace/
-├── CLAUDE.md                  # Agent identity and top-level instructions
-├── .claude/
-│   ├── hooks/                 # Shell scripts -- deterministic enforcement
-│   │   ├── guard-env-files.sh
-│   │   ├── guard-secrets.sh
-│   │   └── ...
+├── CLAUDE.base.md             # Base CLAUDE.md template (copied to CLAUDE.md by bootstrap)
+├── fort-bootstrap             # Setup script: assembles core + profile → live workspace
+├── core/                      # Canonical sources (don't edit live copies — edit here)
 │   ├── agents/                # Worker agent profiles (model routing + tool scoping)
-│   │   ├── worker-mechanical.md   # Haiku -- fast lookups
-│   │   ├── worker-research.md     # Sonnet -- investigation
-│   │   ├── worker-editor.md       # Sonnet -- scoped edits
-│   │   └── worker-reviewer.md     # Opus -- senior review
+│   ├── bin/                   # Shell utilities (includes statusline.sh)
+│   ├── hooks/                 # Shell scripts -- deterministic enforcement
+│   ├── plugins/               # Plugin sources (e.g., core/plugins/fort/skills/)
 │   └── rules/                 # Focused instruction files (auto-loaded)
-│       ├── guardrails.md
-│       ├── output-style.md
-│       └── workflow-intelligence.md
+├── profiles/
+│   └── vanilla/               # Minimal starter profile
+│       ├── CLAUDE.md          # Profile-specific CLAUDE.md addendum
+│       ├── settings.json      # Profile-specific settings
+│       ├── commands/          # User-invocable slash commands (17 in vanilla)
+│       ├── plugins/           # Per-profile plugin overrides (extension point)
+│       └── hooks-disabled/    # Per-profile hook opt-outs (extension point)
 ├── memory/                    # Persistent knowledge (JD-numbered topic files)
-│   ├── MEMORY.md              # Routing table: path prefix -> memory file
-│   └── 60-example.md          # Template memory file
-├── plugins/fort/skills/       # Slash command definitions (loaded on demand)
-│   ├── distill.md
-│   ├── research.md
-│   └── ...
-├── bin/                       # Shell utilities (includes statusline.sh)
 ├── notes/                     # Scratch notes, parking lot
 ├── logs/                      # Session logs (auto-generated)
 ├── projects/                  # Your active codebases
-├── profiles/
-│   └── vanilla/               # Minimal starter profile
-├── fort-bootstrap             # Setup script
 └── assets/                    # Logo and brand assets
 ```
+
+### Customizing your profile
+
+Two extension points let you adapt a profile without touching `core/`:
+
+- **`profiles/<name>/plugins/<plugin-name>/`** — drop a plugin subdirectory here to **override or extend** the same-named plugin under `core/plugins/`. During bootstrap, profile plugins win over core plugins of the same name. Use this when you want a profile-specific variant of a shared plugin.
+- **`profiles/<name>/hooks-disabled/<hook-name>.sh`** — `touch` an empty file with the same name as a `core/hooks/<hook-name>.sh` file to **opt this profile out** of that hook. Bootstrap skips any hook that has a matching disabled marker. Use this when a core hook doesn't fit the profile (e.g., disabling a betting-domain hook in a non-betting profile).
+
+Both are searched at bootstrap time — no further wiring needed. Add files, re-run `./fort-bootstrap --profile=<name>`, done.
 
 ---
 
