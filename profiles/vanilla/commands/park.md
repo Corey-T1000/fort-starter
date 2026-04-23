@@ -3,7 +3,7 @@ name: park
 description: |
   Use when the user says "park this", "save this idea", "not now but later", "idea for later",
   "backlog this", "someday", or has an idea that shouldn't derail current work.
-  Lighter than beads, more structured than scratch. Surfaced in /weekly-review.
+  More structured than scratch. Surfaced in /weekly-review.
 user_invocable: true
 arguments:
   - name: idea
@@ -13,7 +13,7 @@ arguments:
 
 # Park
 
-Quick-capture for ideas that are too small for a beads issue but too important to forget. A curated parking lot that feeds into `/weekly-review`.
+Quick-capture for ideas that are too small for a tracked task but too important to forget. A curated parking lot that feeds into `/weekly-review`.
 
 ## When to Use
 
@@ -28,7 +28,6 @@ Quick-capture for ideas that are too small for a beads issue but too important t
 | Destination | When |
 |-------------|------|
 | **`/park`** | Idea, inspiration, "what if", something to try later. No urgency, no blockers. |
-| **Beads** (`bd create`) | Concrete work item with clear scope. Has a definition of done. |
 | **`/note`** | Knowledge or fact to remember. Not an idea to act on. |
 | **`scratch/`** | Throwaway experiments. Won't be reviewed. |
 
@@ -78,8 +77,8 @@ That's it. No follow-up questions, no routing decisions. Speed is the point.
 
 Ideas leave the parking lot in three ways:
 
-1. **Promoted** → Created as a beads issue when ready to act. Check the box and note `→ beads-XXX`
-2. **Done** → Shipped without needing a beads issue. Check the box.
+1. **Promoted** → Moved into active work when ready to act. Check the box and note where it landed (`→ PR #XX`, `→ project/path`).
+2. **Done** → Shipped directly. Check the box.
 3. **Dropped** → No longer relevant. Check the box and note `dropped`
 
 The parking lot is a living checklist — checked items are history, unchecked items are the active backlog.

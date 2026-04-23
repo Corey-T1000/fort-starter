@@ -26,13 +26,7 @@ When this skill is triggered, gather data from these sources and compile a brief
 
 Gather in parallel where possible:
 
-1. **Beads** (active work):
-   ```bash
-   bd ready
-   bd list --status=in_progress
-   ```
-
-2. **Fort Memory retro** (recent activity):
+1. **Fort Memory retro** (recent activity):
    ```bash
    fort-memory retro <days> 2>/dev/null
    ```
@@ -41,16 +35,16 @@ Gather in parallel where possible:
    fort-memory query "SELECT COUNT(*) as sessions FROM sessions WHERE date >= DATE_SUB(CURDATE(), INTERVAL <days> DAY);"
    ```
 
-3. **Auto-memory** (current state):
+2. **Auto-memory** (current state):
    Read Claude Code's project-scoped `memory/MEMORY.md` (at `$HOME/.claude/projects/-Users-$(whoami)-$(basename $FORT_ROOT)/memory/MEMORY.md`)
 
-4. **Research notes** (recent research):
+3. **Research notes** (recent research):
    ```bash
    ls -lt notes/research/ 2>/dev/null | head -5
    ```
    Read the Summary section from the most recent 2-3 files.
 
-5. **Knowledge base** (stored facts):
+4. **Knowledge base** (stored facts):
    ```bash
    fort-memory knowledge 2>/dev/null
    ```
@@ -61,7 +55,7 @@ If any data source is unavailable (command fails, directory doesn't exist, etc.)
 
 ### Focus Modes
 
-- **work**: Beads + Fort Memory activity only
+- **work**: Fort Memory activity only
 - **knowledge**: Knowledge table + research notes only
 - **all** (default): Everything
 
@@ -72,8 +66,7 @@ If any data source is unavailable (command fails, directory doesn't exist, etc.)
 Period: last <N> days
 
 ### Active Work
-- <open unblocked issues from Beads, 3-5 most important>
-- <in-progress items>
+- <in-progress items from recent commits and session logs>
 
 ### Recent Activity
 - <session count, commit count, key decisions from Fort Memory>

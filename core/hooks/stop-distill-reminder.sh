@@ -24,8 +24,7 @@ FORT_PROJECTS="$HOME/.claude/projects/-$(echo "$FORT_ROOT" | sed 's|^/||; s|/|-|
 
 MEMORY_DIR="${FORT_PROJECTS}/memory"
 MARKER="${MEMORY_DIR}/.distill-ran"
-# Active worktree paths added temporarily — see beads issue for proper fix
-NOISE_PATTERN='\.beads/|\.claude/|memory/|\.distill|logs/|node_modules/|nano-banana-renders/|parking-lot\.md|plugins/fort/skills/distill\.md|projects/home-bud/'
+NOISE_PATTERN='\.claude/|memory/|\.distill|logs/|node_modules/|nano-banana-renders/|parking-lot\.md|plugins/fort/skills/distill\.md|projects/home-bud/'
 
 # Duration gate: skip trivial sessions under 2 minutes
 START_TIME_FILE="${MEMORY_DIR}/.session/start-time"

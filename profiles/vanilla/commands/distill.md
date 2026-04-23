@@ -1,6 +1,6 @@
 ---
 name: distill
-description: Use when ending a session, wrapping up work, or before saying "done". Captures session learnings into JD-numbered memory topic files and flushes beads.
+description: Use when ending a session, wrapping up work, or before saying "done". Captures session learnings into JD-numbered memory topic files.
 user_invocable: true
 context: fork
 agent: general-purpose
@@ -66,8 +66,6 @@ Run these in parallel (silently):
 ```bash
 git diff --stat HEAD~3..HEAD 2>/dev/null || git diff --stat
 git status
-bd list --status=in_progress 2>/dev/null
-bd list --status=closed 2>/dev/null | tail -5
 ```
 
 Also review the conversation for gotchas, patterns, decisions, and fixes.

@@ -39,9 +39,6 @@ If invoked bare, look at recent work:
 ```bash
 # Recent significant commits
 git log --oneline -10
-
-# Recently closed beads
-bd list --status=closed
 ```
 
 Ask the user: "What are we retro-ing on?" with recent items as options.
@@ -52,7 +49,6 @@ Based on the subject, collect relevant data:
 
 **For a shipped feature:**
 - Commits involved: `git log --oneline --all --grep="<keyword>"`
-- Related beads issues
 - Time span from first commit to ship
 - Files touched: `git diff --stat <first-commit>..<last-commit>`
 
@@ -100,9 +96,8 @@ The retro produces three types of output:
 - Only for genuine, repeatable gotchas — not one-offs
 - If accepted, invoke `/hookify` with the specific pattern
 
-**Beads issues** (follow-up work identified):
-- If the retro surfaces work that should happen, offer to create beads issues
-- "The retro surfaced 2 follow-up items. Create beads issues?"
+**Follow-up work** (action items identified):
+- If the retro surfaces work that should happen, offer to capture it via `/park` or open a tracking issue in your task system of choice
 
 ### Step 5: Write the Retro
 
@@ -128,7 +123,7 @@ _YYYY-MM-DD_
 - [Concrete learnings]
 - Memory updated: [files]
 - Hookify rules: [any created]
-- Follow-up beads: [any created]
+- Follow-up: [any captured]
 ```
 
 Create `notes/retros/` if it doesn't exist.
@@ -136,7 +131,7 @@ Create `notes/retros/` if it doesn't exist.
 ### Step 6: Summary
 
 > **Retro complete** on [subject].
-> [count] memory entries saved, [count] hookify rules created, [count] follow-up beads.
+> [count] memory entries saved, [count] hookify rules created, [count] follow-up items captured.
 > Full retro: `notes/retros/YYYY-MM-DD-subject.md`
 
 ## Depth Calibration

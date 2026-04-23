@@ -16,7 +16,7 @@ FORT_ROOT="${FORT_ROOT:-$HOME/claudes-fort}"
 FORT_PROJECTS="$HOME/.claude/projects/-$(echo "$FORT_ROOT" | sed 's|^/||; s|/|-|g')"
 
 MARKER="${FORT_PROJECTS}/memory/.distill-ran"
-NOISE='\.beads/|\.claude/|memory/|\.distill|logs/|node_modules/|nano-banana-renders/'
+NOISE='\.claude/|memory/|\.distill|logs/|node_modules/|nano-banana-renders/'
 
 # Collect meaningful changes (tracked diffs + untracked files)
 CHANGED=$({

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Fort Status - Show status of all Fort components
 #
-# Local:  Sandbox VM, Beads
+# Local:  Sandbox VM
 # Remote: Remote services (Fort Mail, ntfy, etc.)
 #
 # Usage: fort-status [--quiet] [--json]
@@ -88,14 +88,6 @@ if curl -s --connect-timeout 3 "http://${REMOTE_HOST}:9090/v1/health" &>/dev/nul
     NTFY_STATUS="running"
 fi
 
-# Check Beads
-BEADS_STATUS="unavailable"
-BEADS_ISSUES=0
-if command -v bd &> /dev/null; then
-    BEADS_STATUS="available"
-    BEADS_ISSUES=$(bd list 2>/dev/null | wc -l | tr -d ' ')
-fi
-
 if $JSON; then
     cat <<EOF
 {
@@ -103,10 +95,6 @@ if $JSON; then
     "sandbox": {
       "status": "$SANDBOX_STATUS",
       "ip": "$SANDBOX_IP"
-    },
-    "beads": {
-      "status": "$BEADS_STATUS",
-      "issues": $BEADS_ISSUES
     }
   },
   "${FORT_REMOTE_HOST:-remote}": {
@@ -139,7 +127,6 @@ if $QUIET; then
     echo -e "  $(status_icon $SANDBOX_STATUS) Sandbox: $SANDBOX_STATUS"
     echo -e "  $(status_icon $REMOTE_STATUS) Remote: $REMOTE_STATUS"
     echo -e "  $(status_icon $MAIL_STATUS) Fort Mail: $MAIL_STATUS"
-    echo -e "  $(status_icon $BEADS_STATUS) Beads: $BEADS_STATUS"
     exit 0
 fi
 
@@ -158,14 +145,6 @@ elif [ "$SANDBOX_STATUS" = "not-found" ]; then
     echo "    Not configured (run: orb create ubuntu $SANDBOX_VM)"
 else
     echo "    Status: $SANDBOX_STATUS"
-fi
-echo ""
-
-echo -e "  $(status_icon $BEADS_STATUS) ${BOLD}Beads${NC}"
-if [ "$BEADS_STATUS" = "available" ]; then
-    echo "    Issues: $BEADS_ISSUES tracked"
-else
-    echo "    Status: $BEADS_STATUS"
 fi
 echo ""
 

@@ -60,6 +60,6 @@ fi
 
 echo "{
   \"decision\": \"block\",
-  \"reason\": $(printf "Found TODO/FIXME comments in modified files:%s\n\nClean these up or convert to beads issues before finishing." "$TODOS" | jq -Rs .)
+  \"reason\": $(printf "Found TODO/FIXME comments in modified files:%s\n\nClean these up or capture as tracked work before finishing." "$TODOS" | jq -Rs .)
 }"
 exit 0

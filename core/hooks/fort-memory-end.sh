@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fort Memory: collect session data and write to Dolt on SessionEnd.
 #
-# Gathers: new commits since session start, beads issue changes,
+# Gathers: new commits since session start
 # and writes a session record + commit records to the Dolt database.
 set -euo pipefail
 
@@ -136,7 +136,6 @@ fi
 # remote server sync removed (2026-02-19) — was causing SSH permission prompts on
 # every session close. All data stays local. To manually sync if needed:
 #   rsync -az projects/fort-memory/.dolt remote-server:~/fort-memory/
-#   rsync -az .beads/issues.jsonl remote-server:~/fort-data/beads/
 
 # Cleanup markers
 rm -rf "$MARKER_DIR"
