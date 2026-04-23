@@ -46,38 +46,15 @@ This distinction -- probabilistic vs. deterministic -- is the organizing princip
 
 ---
 
-## Framing — the 'fort' is a bit of a dim factory (and why we like the big lights off)
+## Install
 
-the fort runs with real autonomy. hooks fire without asking, memory auto-loads, `/distill` queues itself after sessions, agents dispatch other agents. cost accumulates live in the statusline while work happens in parallel worktrees.
+```bash
+git clone https://github.com/Corey-T1000/fort-starter.git my-workspace
+cd my-workspace
+./fort-bootstrap --profile=vanilla
+```
 
-manufacturing has a term for a plant that runs lights-out with no humans on the floor: the "dark factory." the fort isnt that. its more like a *dim* factory — mostly autonomous, with me in the loop for anything consequential, and the autonomous bits set up to fail safe.
-
-**Why im OK with this split for my uses:**
-
-- **Single user, local first.** the fort runs on my machine. no one elses data, no one elses workflow, no one elses deploy pipeline. blast radius is me.
-- **Git is the safety net.** every autonomous action lands in a diff i can see and revert. hooks never auto-commit to main. agents never push without my hand on the trigger.
-- **Layered trust, anchored in SpiceBox.** three fences: tool scope at the agent layer (the reviewer literally doesnt have `Write` in its tool list), hooks at the intercept layer (blocking risky commands before they run), and SpiceBox at the kernel layer (OS sandbox handling filesystem scope and network allowlists). SpiceBox is the actual trust boundary, the line an agent cant cross. before SpiceBox was in the stack, hooks carried the whole trust story — which worked, right up until a hook pattern had a gap and something slipped through. hooks still do good work above SpiceBox (behavior, workflow, the probabilistic-to-deterministic promotion from Pattern 1). but they arent the right place to land your final trust decision.
-- **Observable.** statusline shows cost live. audit trails capture what happened. Fort Board surfaces every parallel session so i never lose track of whats running.
-- **Failures are loud.** silent failure is the enemy — its burned me once and theres a retro about it. any autonomous step that fails pings Discord, watchdogs escalate, no-ops show up in the status.
-- **Right-sized stakes.** nobodys healthcare depends on this. a scheduled job missing a run is annoying, not catastrophic. the autonomy envelope matches the consequences.
-
-would i hand this setup to someone running a production financial system? no. would i run it on a shared corporate box with team data? also no. but for a solo-designer-who-codes-through-AI building personal tools and exploring? yeah, and the productivity compound from handing off the routine stuff is kinda the whole point.
-
-**The honest risk:** a dim factory trusts its envelope. if the envelope cracks (a hook silently breaks, a scope gate has a bug, an agent escapes its tool list) damage can happen fast because no ones watching. thats why the observable layer (statusline + audit trail + Fort Board) is load-bearing — without it you cant run dim at all.
-
----
-
-## The invisible-infrastructure check
-
-running **42 hooks, 87 memory topics, a kernel-level sandbox, a routing table that auto-loads context on file paths, and workers dispatching on three model tiers in the background**. you'd expect friction. there isnt any.
-
-- hooks that deny run silently on the 95% of commands they dont care about. the 5% they catch, i was gonna regret anyway.
-- memory auto-loads on the first file edit that matches a route — zero extra reads, no UI, no prompt. i find out it loaded when the agent mentions a gotcha before i hit it.
-- workers dispatch in the background on their own model tiers. i dont think about which model is running, the agent picks.
-- SpiceBox enforces at the syscall layer. unless im trying to escape the project root, i never feel it.
-- `/distill` runs after the session closes, not before. whatever i was doing is already saved by the time extraction starts.
-
-if any of it felt heavy i wouldnt still be using it 5 months later. the design spec for each layer is "do the work, stay out of the way." most of the receipts below (hook count, memory count, stream entries) i only know because i just counted them for this doc.
+Then `claude` to start your first session. See [Getting started](#getting-started) below for what to do next.
 
 ---
 
@@ -120,289 +97,6 @@ Markdown files that define slash commands -- `/distill`, `/research`, `/garden`,
 ### 5. CLI -- bin/
 
 Shell utilities that support the workspace from outside Claude Code. Status dashboards, notification wrappers, memory linting, session streaming. These run in your terminal, in cron jobs, or get called by hooks. They're the glue between the AI workspace and your existing dev environment.
-
----
-
-## Three patterns worth stealing
-
-Even if you don't use this template, these patterns transfer to any AI coding setup.
-
-### Pattern 1: Hook taxonomy
-
-Not all hooks serve the same purpose. Categorizing them by intent makes the system easier to reason about and extend.
-
-**Security hooks** -- Hard deny. Cannot be bypassed.
-
-| Hook | What it does |
-|------|-------------|
-| `guard-env-files.sh` | Blocks writes to `.env`, `credentials.json`, `*.pem`, `*.key` |
-| `guard-secrets.sh` | Scans file content for API key patterns and blocks the write |
-| `guard-git-add.sh` | Flags `git add .` and `git add -A` -- forces specific file staging |
-
-**Workflow hooks** -- Automation. Silently modify or augment agent actions.
-
-| Hook | What it does |
-|------|-------------|
-| `enforce-draft-pr.sh` | Injects `--draft` into every `gh pr create` command |
-| `format-commit-msg.sh` | Validates conventional commits format |
-
-**Quality hooks** -- Catching mistakes before they ship.
-
-| Hook | What it does |
-|------|-------------|
-| `guard-push-rebase.sh` | Blocks push if your branch is behind remote |
-| `stop-lint-check.sh` | Runs linter on recently modified files before session ends |
-
-The mental model: **if you'd be upset when it fails, make it a hook.**
-
-This workspace uses [SpiceBox](https://github.com/authzed/spicebox) alongside these hooks. Hooks handle the behavioral side -- what the agent should and shouldn't do. SpiceBox handles the permission side -- what the agent *can* and *can't* do at the OS and network level. Different layers, same goal.
-
-### Pattern 2: Memory routing
-
-The memory system solves a specific problem: Claude Code sessions are stateless. Every new session starts fresh. Memory routing makes context loading automatic instead of manual.
-
-`MEMORY.md` contains a routing table:
-
-```markdown
-| Path prefix              | Memory file            | Tab title           |
-|--------------------------|------------------------|---------------------|
-| projects/dashboard/      | memory/60-dashboard.md | workspace:dashboard |
-| projects/api/            | memory/61-api.md       | workspace:api       |
-| deploy/                  | memory/50-infra.md     | workspace:infra     |
-```
-
-When the agent first edits a file matching a path prefix, it loads the corresponding memory file:
-
-```markdown
-# 60 -- Dashboard
-
-## Known gotchas
-- The chart library silently drops data points over 10k rows
-- CSS grid gap doesn't work in the kiosk browser -- use margin instead
-
-## Recent decisions
-- 2025-03-15: Switched from polling to SSE for live updates (reduced CPU 40%)
-```
-
-**How to write good memory files:**
-- Record the "why," not just the "what." Future sessions can read the code for "what."
-- Capture gotchas -- the things that cost you 30 minutes to debug once and would cost 30 minutes again.
-- Include dates on decisions so you know how stale the context is.
-
-### Pattern 3: Probabilistic vs. deterministic
-
-The decision framework for everything in the workspace:
-
-| If failure means... | Then use... | Example |
-|---|---|---|
-| Nothing serious | CLAUDE.md instruction | "Use conventional commit messages" |
-| Annoying but recoverable | Hook with `ask` | "Confirm before deploying" |
-| Genuinely bad | Hook with `deny` | "Never write API keys to files" |
-
-Rules of thumb:
-
-- **Security** is always a hook. No exceptions.
-- **Style and tone** are always CLAUDE.md. Hooks can't judge prose quality.
-- If you find yourself repeating a CLAUDE.md instruction because it keeps getting ignored, that's a sign it should be a hook.
-
----
-
-## Worker agent profiles — cost discipline through model routing
-
-This is the single biggest unlock in the setup this was extracted from, and it directly answers the "this workflow burns tokens" concern.
-
-Claude Code lets you define named sub-agents with specific models and tool scopes. The starter ships four:
-
-| Agent | Model | Tools | Dispatch for |
-|-------|-------|-------|--------------|
-| `worker-mechanical` | Haiku | Read, Grep, Glob, Bash | Fact lookups, file existence, config values |
-| `worker-research` | Sonnet | +Write, WebSearch, WebFetch | Investigation, competitive research, codebase exploration |
-| `worker-editor` | Sonnet | +Edit, Write | Scoped code changes from a brief |
-| `worker-reviewer` | Opus | Read, Grep, Glob, Bash | Senior review, security audit, pre-merge verification |
-
-**Why this matters for cost:**
-
-A naive setup runs every sub-agent on the coordinator's model. If your coordinator is Opus, every "what port does this service use?" lookup burns Opus tokens. That's 10-20x more expensive than Haiku for a task Haiku nails.
-
-Routing by job keeps the bill honest:
-
-- **Mechanical** (Haiku) — cheap and fast, for tasks where the answer shape is "a fact"
-- **Research / Editor** (Sonnet) — the workhorse tier, good judgment at a reasonable rate
-- **Reviewer** (Opus) — reserved for senior-level review where cost is worth it
-
-**Why this matters for safety:**
-
-Each agent's tool list is a scope gate. The reviewer can't write files — the definition doesn't include `Edit` or `Write`, so the tool isn't available at all. The editor can't run web searches. The mechanical worker can't touch the internet. Behavior-by-construction, not behavior-by-instruction.
-
-Pair this with SpiceBox for OS-level permission enforcement (different filesystem scopes per agent, network allowlists, sandboxing) and you get defense-in-depth without writing a single hook.
-
-**Where they live:**
-
-`core/agents/*.md`. Bootstrap copies them to `.claude/agents/`. Edit, add, or delete — the four here are starting points, not prescriptions.
-
----
-
-## The compounding loop — a workspace that teaches itself
-
-The infrastructure above is the scaffolding. What makes the setup actually compound over time is a handful of skills that feed signal back into the system. The Fort is semi self-improving — every session leaves the next session smarter.
-
-A typical session generates a lot of signal: decisions, gotchas, research findings, surprises. Without a capture layer, that signal evaporates when the session closes. The "Knowledge capture" skills in the section below exist to turn sessions into durable context. Memory then loads on demand via the routing table (see Pattern 2 above). Next session's context window is pre-loaded with everything relevant before you type a word.
-
-**The loop has two tiers:**
-
-1. **Knowledge loop (fast).** Research → capture → memory → auto-load next session. Days.
-2. **Infrastructure loop (slow).** When a CLAUDE.md instruction keeps getting ignored, promote it to a hook. When a multi-step workflow stabilizes across several sessions, extract it into a skill. When a failure mode bites twice, write a memory entry with the fix. Weeks to months.
-
-Five months in, the compound is real. New sessions on known topics start productive in seconds because the gotchas, decisions, and architectural patterns are already loaded. The template you're looking at is itself the output of that loop — patterns that earned their way in by proving useful across dozens of real projects.
-
-Your fork will do the same for your work.
-
----
-
-## Memory architecture — how the loop actually moves data
-
-The compounding loop above is the user-facing story. Under it sits a compiler-style pipeline that moves session signal into queryable knowledge. Useful to understand because it tells you where to look when something seems lost, and where to add a stage when you outgrow the defaults.
-
-```
-   source                compiler              wiki              index             linter             archive
-┌──────────┐         ┌──────────────┐      ┌──────────┐      ┌──────────┐      ┌──────────┐      ┌──────────┐
-│  logs/   │         │  /distill    │      │ memory/  │      │MEMORY.md │      │ memory   │      │ your     │
-│  session │ ──────► │  +           │ ───► │ XX-*.md  │ ───► │ routing  │ ───► │ hygiene  │ ───► │ durable  │
-│  digest  │         │  /narrate    │      │ session_ │      │  table   │      │  checks  │      │ synthesis│
-└──────────┘         └──────────────┘      │  *.md    │      └──────────┘      └──────────┘      │  layer   │
-                                            └──────────┘                                          └──────────┘
-                                                 ▲                                                     ▲
-                                                 │                                                     │
-                                            queried at runtime                                    optional, point
-                                            via Read / Grep / `/search-fort`                      `$FORT_KNOWLEDGE_BASE`
-                                                                                                  at your KB
-```
-
-**Stages:**
-
-1. **Source** — `logs/YYYY-MM-DD.md` (commit + session events from hooks) + per-session digests + the raw transcript.
-2. **Compiler — dual extraction.** Two complementary skills run on session end:
-   - `/distill` reads files + git + the session log and writes operational facts into JD-numbered topic files.
-   - `/narrate` reads the *transcript itself* and writes the conversational arc — implicit acceptances, one-line reframings, rejected alternatives — into `memory/session_<date>_<slug>.md`.
-   Both fire because each catches what the other misses. `/distill` alone loses the reasoning trail. `/narrate` alone loses the file-level deltas.
-3. **Wiki** — `memory/XX-topic.md` (operational, JD-indexed) and `memory/session_*.md` (narratives, flag-tagged). What future sessions actually query.
-4. **Index** — `MEMORY.md` is the routing table. First file edit on a matching path auto-loads the relevant memory. No vector DB required at the default tier.
-5. **Linter** — periodic memory hygiene checks (broken refs, orphaned files, stale topics) keep the wiki query-clean. Run via `/garden`.
-6. **Archive** — your durable synthesis layer. The starter doesn't bundle one; if you keep an Obsidian vault or similar, point `$FORT_KNOWLEDGE_BASE` at it and the cross-check rule in `rules/workflow-intelligence.md` will use it.
-
-**AAAK Flags — making load-bearing moments findable.**
-
-Session narratives carry a `Flags: [...]` frontmatter field with a closed vocabulary:
-
-- `PIVOT` — course change
-- `DECISION` — load-bearing choice with rationale
-- `ORIGIN` — first-mention of a pattern that becomes load-bearing
-- `CORE` — fundamental concept underlying downstream decisions
-- `SENSITIVE` — sharp-edge moments (mistakes, retros, auth/PII)
-
-The shape lets you ask "show me every PIVOT in the last month" instead of grepping prose for tone shifts. Closed set on purpose — every new flag dilutes the signal.
-
-### Retrieval — three layers, escalate by question shape
-
-| Question shape | Reach for | Why |
-|---|---|---|
-| Crisp keyword, known topic | `/search-fort` (Read / Grep) | Sub-100ms over local memory files |
-| Vague, vibe-recall, "that session where..." | `/recall` | Agent-as-retriever scans narratives, filters by Flags |
-| Outgrown agent-scan budgets (hundreds of narratives) | Vector store (e.g. MemPalace) | Optional capstone — see below |
-
-**Capstone — when /recall stops scaling.** If your narrative corpus outgrows what an agent can scan in a single dispatch, the personal Fort layers a vector-backed semantic store on top. [MemPalace](https://github.com/Corey-T1000/claudes-fort) (the personal Fort's plugin) provides ChromaDB-backed semantic recall with launchd-driven re-mining and Flag-aware filtering. See `services/mempalace-bridge/` in [Corey's Fort](https://github.com/Corey-T1000/claudes-fort) for the install pattern. Not bundled here — it's Python venv + ChromaDB + ~672 MB of dependencies, which is the right tradeoff at scale and the wrong one at zero.
-
-The default starter retrieval — `/search-fort` for crisp keywords, `/recall` for vibe queries — is enough for the first several months of use. Graduate when you actually feel the budget, not before.
-
----
-
-## The skill stack — core verbs and how they compose
-
-Skills are slash commands that wrap a specific workflow. The starter ships a bunch — grouped below by when they fire.
-
-### Daily rhythm
-
-Skills that bracket the day. These set and close context so sessions start and end cleanly.
-
-| Skill | When it fires | What it does |
-|-------|--------------|--------------|
-| `/bod` | start of day | Reads last session log, recent git, open PRs, parking-lot. Sets focus for the day. |
-| `/pulse` | mid-session breaks | Lightweight status check — mail, workers, reminders. One-line summary. |
-| `/briefing` | "catch me up" | Longer rollup across all persistence layers when returning from time away. |
-| `/eod` | end of day | Reviews the day, writes daily log, surfaces tomorrow's focus, runs `/distill`. |
-
-### Work skills (divergent → convergent)
-
-Skills that do the actual work.
-
-| Skill | Phase | What it does |
-|-------|-------|--------------|
-| `/research` | explore | Dispatches `worker-research` to investigate a topic, writes structured findings to `scratch/research/`. |
-
-> The vanilla profile keeps the work-skill set narrow on purpose — `/research` plus the daily-rhythm and capture skills cover the core loop. Other workflow skills referenced in flows below (`/brainstorming`, `/writing-plans`, `/executing-plans`, `/design-lab`, `/review-pr`, `/ship`) are part of Corey's full Fort and are **not bundled in vanilla**. Add them via fork, install from the upstream Fort, or wait for upcoming PRs that promote stabilized skills into the starter.
-
-### Knowledge capture (the compounding loop)
-
-Skills that feed signal back into memory — the layer that turns sessions into durable context.
-
-| Skill | What it captures |
-|-------|-----------------|
-| `/capture` | Research findings → routed to right JD memory file |
-| `/note` | Quick mid-session observation → memory or scratch |
-| `/park` | "Not now but later" → parking-lot |
-| `/distill` | Session-end extraction → JD-numbered memory (file-level signal) |
-| `/narrate` | Session-end extraction → `memory/session_*.md` (transcript-level signal: reframings, pivots, AAAK Flags) |
-| `/compound` | Feature-level `/distill` — patterns, surprises, decisions (plugin skill) |
-| `/retro` | Post-incident deep zoom — what happened, what surprised, what to change |
-| `/garden` | Periodic maintenance — stale memory, orphaned scratch, broken refs |
-
-> `/devlog` and `/weekly-review` referenced elsewhere in the docs are not bundled in vanilla — add via fork or wait for upcoming PRs.
-
-### `/assistant` — the persistent dispatcher
-
-`/assistant` is the one that ties it all together. It's not a task runner, it's a *conversational partner* that holds the thread while routing work out to everything above.
-
-**What it does:**
-
-- Keeps the main conversation responsive — heavy lifting goes to sub-agents via dispatch
-- Routes casual-language intent to the right skill ("check my calendar" → `/calendar`, "what's the status" → `/pulse`)
-- Writes a per-assistant state file to `scratch/assistants/<slug>.md` so focus survives compaction
-- Announces what skill it's reaching for before dispatching ("reaching for `/research` here")
-
-**Different modes it runs in:**
-
-- **Dispatch mode (default).** You talk, it routes. Calls `/research` / `/capture` / `/note` on your behalf and results come back into the conversation.
-- **Task-taker mode.** When a brain dump starts — "oh also i need to..." items — it captures to `notes/task-dump.md` with timeline buckets (Now / This Week / Later / Someday) instead of derailing focus.
-- **Multi-assistant.** Supports 2-4 parallel `/assistant` sessions — one focused, one always-on for random asks, a third while waiting on sub-agents. Each is keyed by focus slug. No cross-session bleed.
-- **Named resume.** `/assistant dashboard` re-enters the named assistant at `scratch/assistants/dashboard.md` with full prior context. Ultra-light if < 4hrs old, standard resume otherwise.
-
-**How the skills interact through `/assistant`:**
-
-```
-               ⚑
-               │
-   ┌─ /bod ────┴──────────── sets daily context
-   │
-   └─► /assistant ──────────── you talk to this all day
-          │
-          ├─ routes to ─► /research     (dispatch to worker-research)
-          ├─ routes to ─► /pulse        (lightweight status check)
-          ├─ routes to ─► /briefing     (longer rollup, "catch me up")
-          ├─ routes to ─► /switch       (context switch between projects)
-          │
-          ├─ captures  ─► /note / /park / /capture (mid-thread)
-          ├─ tracks    ─► task-dump (brain dump capture)
-          │
-   ┌─────┘
-   │
-   └─► /eod → /distill ────── closes the session, writes to memory
-          │
-          └─► next session starts with that memory auto-loaded
-```
-
-> Flows below also show `/design-lab`, `/review-pr`, `/ship`, and the `/brainstorming → /writing-plans → /executing-plans` chain. Those skills are not bundled in the vanilla profile — they live in the upstream Fort and may land in future PRs. The flows are kept here as illustrations of how `/assistant` can route once you add them.
-
-The whole point of `/assistant` is that you don't have to remember which skill to reach for. Say what you want in natural language and it picks the right one (or asks if it's ambiguous). The skills are the individual tools, `/assistant` is the one that knows which tool fits the job.
 
 ---
 
@@ -699,23 +393,315 @@ $ claude
 
 ---
 
+## Why this doesn't feel heavy in daily use
+
+> **42 hooks, 87 memory topics, a kernel-level sandbox, a routing table that auto-loads context on file paths, workers dispatching on three model tiers.** youd expect friction. there isnt any — because each layer is designed to stay out of the way unless failure would matter.
+>
+> - **Single user, local first.** the fort runs on my machine. blast radius is me.
+> - **Git is the safety net.** every autonomous action lands in a diff i can see and revert. hooks never auto-commit to main, agents never push without my hand on the trigger.
+> - **Layered trust, anchored in SpiceBox.** three fences — tool scope at the agent layer, hooks at the intercept layer, SpiceBox at the kernel layer. SpiceBox is the actual trust boundary; hooks handle behavior and workflow above it. before SpiceBox, hooks carried the whole trust story — which worked, right up until a pattern had a gap.
+> - **Observable.** statusline shows cost live. audit trails capture what happened. Fort Board surfaces every parallel session.
+> - **Failures are loud.** silent failure is the enemy — any autonomous step that fails pings Discord, watchdogs escalate, no-ops show up in status.
+> - **Right-sized stakes.** nobodys healthcare depends on this. a scheduled job missing a run is annoying, not catastrophic. the autonomy envelope matches the consequences.
+> - **The honest risk.** a dim factory trusts its envelope. if the envelope cracks (a hook silently breaks, a scope gate has a bug) damage can happen fast because no ones watching. thats why the observable layer is load-bearing — without it you cant run dim at all.
+
+---
+
+## Deep dives
+
+<details>
+<summary><b>Three patterns worth stealing</b> — hook taxonomy, memory routing, probabilistic vs. deterministic</summary>
+
+Even if you don't use this template, these patterns transfer to any AI coding setup.
+
+### Pattern 1: Hook taxonomy
+
+Not all hooks serve the same purpose. Categorizing them by intent makes the system easier to reason about and extend.
+
+**Security hooks** -- Hard deny. Cannot be bypassed.
+
+| Hook | What it does |
+|------|-------------|
+| `guard-env-files.sh` | Blocks writes to `.env`, `credentials.json`, `*.pem`, `*.key` |
+| `guard-secrets.sh` | Scans file content for API key patterns and blocks the write |
+| `guard-git-add.sh` | Flags `git add .` and `git add -A` -- forces specific file staging |
+
+**Workflow hooks** -- Automation. Silently modify or augment agent actions.
+
+| Hook | What it does |
+|------|-------------|
+| `enforce-draft-pr.sh` | Injects `--draft` into every `gh pr create` command |
+| `format-commit-msg.sh` | Validates conventional commits format |
+
+**Quality hooks** -- Catching mistakes before they ship.
+
+| Hook | What it does |
+|------|-------------|
+| `guard-push-rebase.sh` | Blocks push if your branch is behind remote |
+| `stop-lint-check.sh` | Runs linter on recently modified files before session ends |
+
+The mental model: **if you'd be upset when it fails, make it a hook.**
+
+This workspace uses [SpiceBox](https://github.com/authzed/spicebox) alongside these hooks. Hooks handle the behavioral side -- what the agent should and shouldn't do. SpiceBox handles the permission side -- what the agent *can* and *can't* do at the OS and network level. Different layers, same goal.
+
+### Pattern 2: Memory routing
+
+The memory system solves a specific problem: Claude Code sessions are stateless. Every new session starts fresh. Memory routing makes context loading automatic instead of manual.
+
+`MEMORY.md` contains a routing table:
+
+```markdown
+| Path prefix              | Memory file            | Tab title           |
+|--------------------------|------------------------|---------------------|
+| projects/dashboard/      | memory/60-dashboard.md | workspace:dashboard |
+| projects/api/            | memory/61-api.md       | workspace:api       |
+| deploy/                  | memory/50-infra.md     | workspace:infra     |
+```
+
+When the agent first edits a file matching a path prefix, it loads the corresponding memory file:
+
+```markdown
+# 60 -- Dashboard
+
+## Known gotchas
+- The chart library silently drops data points over 10k rows
+- CSS grid gap doesn't work in the kiosk browser -- use margin instead
+
+## Recent decisions
+- 2025-03-15: Switched from polling to SSE for live updates (reduced CPU 40%)
+```
+
+**How to write good memory files:**
+- Record the "why," not just the "what." Future sessions can read the code for "what."
+- Capture gotchas -- the things that cost you 30 minutes to debug once and would cost 30 minutes again.
+- Include dates on decisions so you know how stale the context is.
+
+### Pattern 3: Probabilistic vs. deterministic
+
+The decision framework for everything in the workspace:
+
+| If failure means... | Then use... | Example |
+|---|---|---|
+| Nothing serious | CLAUDE.md instruction | "Use conventional commit messages" |
+| Annoying but recoverable | Hook with `ask` | "Confirm before deploying" |
+| Genuinely bad | Hook with `deny` | "Never write API keys to files" |
+
+Rules of thumb:
+
+- **Security** is always a hook. No exceptions.
+- **Style and tone** are always CLAUDE.md. Hooks can't judge prose quality.
+- If you find yourself repeating a CLAUDE.md instruction because it keeps getting ignored, that's a sign it should be a hook.
+
+</details>
+
+<details>
+<summary><b>Worker agent profiles</b> — cost discipline through model routing</summary>
+
+This is the single biggest unlock in the setup this was extracted from, and it directly answers the "this workflow burns tokens" concern.
+
+Claude Code lets you define named sub-agents with specific models and tool scopes. The starter ships four:
+
+| Agent | Model | Tools | Dispatch for |
+|-------|-------|-------|--------------|
+| `worker-mechanical` | Haiku | Read, Grep, Glob, Bash | Fact lookups, file existence, config values |
+| `worker-research` | Sonnet | +Write, WebSearch, WebFetch | Investigation, competitive research, codebase exploration |
+| `worker-editor` | Sonnet | +Edit, Write | Scoped code changes from a brief |
+| `worker-reviewer` | Opus | Read, Grep, Glob, Bash | Senior review, security audit, pre-merge verification |
+
+**Why this matters for cost:**
+
+A naive setup runs every sub-agent on the coordinator's model. If your coordinator is Opus, every "what port does this service use?" lookup burns Opus tokens. That's 10-20x more expensive than Haiku for a task Haiku nails.
+
+Routing by job keeps the bill honest:
+
+- **Mechanical** (Haiku) — cheap and fast, for tasks where the answer shape is "a fact"
+- **Research / Editor** (Sonnet) — the workhorse tier, good judgment at a reasonable rate
+- **Reviewer** (Opus) — reserved for senior-level review where cost is worth it
+
+**Why this matters for safety:**
+
+Each agent's tool list is a scope gate. The reviewer can't write files — the definition doesn't include `Edit` or `Write`, so the tool isn't available at all. The editor can't run web searches. The mechanical worker can't touch the internet. Behavior-by-construction, not behavior-by-instruction.
+
+Pair this with SpiceBox for OS-level permission enforcement (different filesystem scopes per agent, network allowlists, sandboxing) and you get defense-in-depth without writing a single hook.
+
+**Where they live:**
+
+`core/agents/*.md`. Bootstrap copies them to `.claude/agents/`. Edit, add, or delete — the four here are starting points, not prescriptions.
+
+</details>
+
+<details>
+<summary><b>The compounding loop</b> — a workspace that teaches itself</summary>
+
+The infrastructure above is the scaffolding. What makes the setup actually compound over time is a handful of skills that feed signal back into the system. The Fort is semi self-improving — every session leaves the next session smarter.
+
+A typical session generates a lot of signal: decisions, gotchas, research findings, surprises. Without a capture layer, that signal evaporates when the session closes. The "Knowledge capture" skills in the section below exist to turn sessions into durable context. Memory then loads on demand via the routing table (see Pattern 2 above). Next session's context window is pre-loaded with everything relevant before you type a word.
+
+**The loop has two tiers:**
+
+1. **Knowledge loop (fast).** Research → capture → memory → auto-load next session. Days.
+2. **Infrastructure loop (slow).** When a CLAUDE.md instruction keeps getting ignored, promote it to a hook. When a multi-step workflow stabilizes across several sessions, extract it into a skill. When a failure mode bites twice, write a memory entry with the fix. Weeks to months.
+
+Five months in, the compound is real. New sessions on known topics start productive in seconds because the gotchas, decisions, and architectural patterns are already loaded. The template you're looking at is itself the output of that loop — patterns that earned their way in by proving useful across dozens of real projects.
+
+Your fork will do the same for your work.
+
+</details>
+
+<details>
+<summary><b>Memory architecture</b> — how the loop actually moves data</summary>
+
+The compounding loop above is the user-facing story. Under it sits a compiler-style pipeline that moves session signal into queryable knowledge. Useful to understand because it tells you where to look when something seems lost, and where to add a stage when you outgrow the defaults.
+
+```
+   source                compiler              wiki              index             linter             archive
+┌──────────┐         ┌──────────────┐      ┌──────────┐      ┌──────────┐      ┌──────────┐      ┌──────────┐
+│  logs/   │         │  /distill    │      │ memory/  │      │MEMORY.md │      │ memory   │      │ your     │
+│  session │ ──────► │  +           │ ───► │ XX-*.md  │ ───► │ routing  │ ───► │ hygiene  │ ───► │ durable  │
+│  digest  │         │  /narrate    │      │ session_ │      │  table   │      │  checks  │      │ synthesis│
+└──────────┘         └──────────────┘      │  *.md    │      └──────────┘      └──────────┘      │  layer   │
+                                            └──────────┘                                          └──────────┘
+                                                 ▲                                                     ▲
+                                                 │                                                     │
+                                            queried at runtime                                    optional, point
+                                            via Read / Grep / `/search-fort`                      `$FORT_KNOWLEDGE_BASE`
+                                                                                                  at your KB
+```
+
+**Stages:**
+
+1. **Source** — `logs/YYYY-MM-DD.md` (commit + session events from hooks) + per-session digests + the raw transcript.
+2. **Compiler — dual extraction.** Two complementary skills run on session end:
+   - `/distill` reads files + git + the session log and writes operational facts into JD-numbered topic files.
+   - `/narrate` reads the *transcript itself* and writes the conversational arc — implicit acceptances, one-line reframings, rejected alternatives — into `memory/session_<date>_<slug>.md`.
+   Both fire because each catches what the other misses. `/distill` alone loses the reasoning trail. `/narrate` alone loses the file-level deltas.
+3. **Wiki** — `memory/XX-topic.md` (operational, JD-indexed) and `memory/session_*.md` (narratives, flag-tagged). What future sessions actually query.
+4. **Index** — `MEMORY.md` is the routing table. First file edit on a matching path auto-loads the relevant memory. No vector DB required at the default tier.
+5. **Linter** — periodic memory hygiene checks (broken refs, orphaned files, stale topics) keep the wiki query-clean. Run via `/garden`.
+6. **Archive** — your durable synthesis layer. The starter doesn't bundle one; if you keep an Obsidian vault or similar, point `$FORT_KNOWLEDGE_BASE` at it and the cross-check rule in `rules/workflow-intelligence.md` will use it.
+
+**AAAK Flags — making load-bearing moments findable.**
+
+Session narratives carry a `Flags: [...]` frontmatter field with a closed vocabulary:
+
+- `PIVOT` — course change
+- `DECISION` — load-bearing choice with rationale
+- `ORIGIN` — first-mention of a pattern that becomes load-bearing
+- `CORE` — fundamental concept underlying downstream decisions
+- `SENSITIVE` — sharp-edge moments (mistakes, retros, auth/PII)
+
+The shape lets you ask "show me every PIVOT in the last month" instead of grepping prose for tone shifts. Closed set on purpose — every new flag dilutes the signal.
+
+### Retrieval — three layers, escalate by question shape
+
+| Question shape | Reach for | Why |
+|---|---|---|
+| Crisp keyword, known topic | `/search-fort` (Read / Grep) | Sub-100ms over local memory files |
+| Vague, vibe-recall, "that session where..." | `/recall` | Agent-as-retriever scans narratives, filters by Flags |
+| Outgrown agent-scan budgets (hundreds of narratives) | Vector store (e.g. MemPalace) | Optional capstone — see below |
+
+**Capstone — when /recall stops scaling.** If your narrative corpus outgrows what an agent can scan in a single dispatch, the personal Fort layers a vector-backed semantic store on top. [MemPalace](https://github.com/Corey-T1000/claudes-fort) (the personal Fort's plugin) provides ChromaDB-backed semantic recall with launchd-driven re-mining and Flag-aware filtering. See `services/mempalace-bridge/` in [Corey's Fort](https://github.com/Corey-T1000/claudes-fort) for the install pattern. Not bundled here — it's Python venv + ChromaDB + ~672 MB of dependencies, which is the right tradeoff at scale and the wrong one at zero.
+
+The default starter retrieval — `/search-fort` for crisp keywords, `/recall` for vibe queries — is enough for the first several months of use. Graduate when you actually feel the budget, not before.
+
+</details>
+
+<details>
+<summary><b>The skill stack</b> — core verbs and how they compose</summary>
+
+Skills are slash commands that wrap a specific workflow. The starter ships a bunch — grouped below by when they fire.
+
+### Daily rhythm
+
+Skills that bracket the day. These set and close context so sessions start and end cleanly.
+
+| Skill | When it fires | What it does |
+|-------|--------------|--------------|
+| `/bod` | start of day | Reads last session log, recent git, open PRs, parking-lot. Sets focus for the day. |
+| `/pulse` | mid-session breaks | Lightweight status check — mail, workers, reminders. One-line summary. |
+| `/briefing` | "catch me up" | Longer rollup across all persistence layers when returning from time away. |
+| `/eod` | end of day | Reviews the day, writes daily log, surfaces tomorrow's focus, runs `/distill`. |
+
+### Work skills (divergent → convergent)
+
+Skills that do the actual work.
+
+| Skill | Phase | What it does |
+|-------|-------|--------------|
+| `/research` | explore | Dispatches `worker-research` to investigate a topic, writes structured findings to `scratch/research/`. |
+
+> The vanilla profile keeps the work-skill set narrow on purpose — `/research` plus the daily-rhythm and capture skills cover the core loop. Other workflow skills referenced in flows below (`/brainstorming`, `/writing-plans`, `/executing-plans`, `/design-lab`, `/review-pr`, `/ship`) are part of Corey's full Fort and are **not bundled in vanilla**. Add them via fork, install from the upstream Fort, or wait for upcoming PRs that promote stabilized skills into the starter.
+
+### Knowledge capture (the compounding loop)
+
+Skills that feed signal back into memory — the layer that turns sessions into durable context.
+
+| Skill | What it captures |
+|-------|-----------------|
+| `/capture` | Research findings → routed to right JD memory file |
+| `/note` | Quick mid-session observation → memory or scratch |
+| `/park` | "Not now but later" → parking-lot |
+| `/distill` | Session-end extraction → JD-numbered memory (file-level signal) |
+| `/narrate` | Session-end extraction → `memory/session_*.md` (transcript-level signal: reframings, pivots, AAAK Flags) |
+| `/compound` | Feature-level `/distill` — patterns, surprises, decisions (plugin skill) |
+| `/retro` | Post-incident deep zoom — what happened, what surprised, what to change |
+| `/garden` | Periodic maintenance — stale memory, orphaned scratch, broken refs |
+
+> `/devlog` and `/weekly-review` referenced elsewhere in the docs are not bundled in vanilla — add via fork or wait for upcoming PRs.
+
+### `/assistant` — the persistent dispatcher
+
+`/assistant` is the one that ties it all together. It's not a task runner, it's a *conversational partner* that holds the thread while routing work out to everything above.
+
+**What it does:**
+
+- Keeps the main conversation responsive — heavy lifting goes to sub-agents via dispatch
+- Routes casual-language intent to the right skill ("check my calendar" → `/calendar`, "what's the status" → `/pulse`)
+- Writes a per-assistant state file to `scratch/assistants/<slug>.md` so focus survives compaction
+- Announces what skill it's reaching for before dispatching ("reaching for `/research` here")
+
+**Different modes it runs in:**
+
+- **Dispatch mode (default).** You talk, it routes. Calls `/research` / `/capture` / `/note` on your behalf and results come back into the conversation.
+- **Task-taker mode.** When a brain dump starts — "oh also i need to..." items — it captures to `notes/task-dump.md` with timeline buckets (Now / This Week / Later / Someday) instead of derailing focus.
+- **Multi-assistant.** Supports 2-4 parallel `/assistant` sessions — one focused, one always-on for random asks, a third while waiting on sub-agents. Each is keyed by focus slug. No cross-session bleed.
+- **Named resume.** `/assistant dashboard` re-enters the named assistant at `scratch/assistants/dashboard.md` with full prior context. Ultra-light if < 4hrs old, standard resume otherwise.
+
+**How the skills interact through `/assistant`:**
+
+```
+               ⚑
+               │
+   ┌─ /bod ────┴──────────── sets daily context
+   │
+   └─► /assistant ──────────── you talk to this all day
+          │
+          ├─ routes to ─► /research     (dispatch to worker-research)
+          ├─ routes to ─► /pulse        (lightweight status check)
+          ├─ routes to ─► /briefing     (longer rollup, "catch me up")
+          ├─ routes to ─► /switch       (context switch between projects)
+          │
+          ├─ captures  ─► /note / /park / /capture (mid-thread)
+          ├─ tracks    ─► task-dump (brain dump capture)
+          │
+   ┌─────┘
+   │
+   └─► /eod → /distill ────── closes the session, writes to memory
+          │
+          └─► next session starts with that memory auto-loaded
+```
+
+> Flows below also show `/design-lab`, `/review-pr`, `/ship`, and the `/brainstorming → /writing-plans → /executing-plans` chain. Those skills are not bundled in the vanilla profile — they live in the upstream Fort and may land in future PRs. The flows are kept here as illustrations of how `/assistant` can route once you add them.
+
+The whole point of `/assistant` is that you don't have to remember which skill to reach for. Say what you want in natural language and it picks the right one (or asks if it's ambiguous). The skills are the individual tools, `/assistant` is the one that knows which tool fits the job.
+
+</details>
+
+---
+
 ## Getting started
 
-### 1. Clone and bootstrap
-
-```bash
-git clone https://github.com/Corey-T1000/fort-starter.git my-workspace
-cd my-workspace
-./fort-bootstrap --profile=vanilla
-```
-
-### 2. Start your first session
-
-```bash
-claude
-```
-
-### 3. What to do first
+### 1. What to do first
 
 **Create your first memory file.** Pick a project you're actively working on. Create `memory/60-your-project.md` and write down three things: what the project is, one architecture decision you've made, and one gotcha you've hit. Add a route to `MEMORY.md`. Now every future session that touches that project starts with context.
 
@@ -725,7 +711,7 @@ claude
 
 **Explore the skills.** Type `/` in Claude Code to see available slash commands. Try `/research` for deep investigation, `/distill` at the end of a session to capture what you learned.
 
-### 4. Growing the workspace
+### 2. Growing the workspace
 
 - **Week 1**: Customize CLAUDE.md, create 2-3 memory files for active projects
 - **Week 2**: Write your first custom hook, start using `/distill` to capture session learnings
