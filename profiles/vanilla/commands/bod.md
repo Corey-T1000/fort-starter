@@ -129,12 +129,6 @@ If no recent devlog exists, skip silently.
 Run in parallel:
 
 ```bash
-bd ready 2>/dev/null
-```
-```bash
-bd list --status=in_progress 2>/dev/null
-```
-```bash
 git log --since="yesterday" --oneline --all --no-merges
 ```
 
@@ -186,8 +180,7 @@ Ask: "What's your focus today?"
 One question, free text. Based on the answer:
 1. Load the relevant memory file (use the workflow-intelligence routing table, or `/switch` project registry for name→path mapping)
 2. Set tab title with `tab-title "fort:focus-topic"`
-3. If a beads issue matches, offer to mark it in_progress
-4. Pull relevant knowledge from memory (see Step 5.5)
+3. Pull relevant knowledge from memory (see Step 5.5)
 
 ### Step 5.5: Memory Knowledge Recall
 
@@ -220,7 +213,7 @@ For longer sessions, consider starting a background ambient check:
 /loop 2h /pulse
 ```
 
-This fires `/pulse` every 2 hours to catch beads drift, new mail, and reminders without the user having to ask. The loop is session-scoped — dies on exit, no cleanup needed. Only start this when the session is expected to last 2+ hours.
+This fires `/pulse` every 2 hours to catch new mail and reminders without the user having to ask. The loop is session-scoped — dies on exit, no cleanup needed. Only start this when the session is expected to last 2+ hours.
 
 ---
 
@@ -232,7 +225,7 @@ Load context, gather state, present summary.
 
 ### Step 5: Triage Open Items
 
-If 5 or fewer in_progress beads issues: triage individually with AskUserQuestion.
+If 5 or fewer in-progress threads (open branches, parked items, recent uncommitted work): triage individually with AskUserQuestion.
 If more than 5: present all in a summary table and let the user batch-respond.
 
 For individual triage, use **AskUserQuestion**:
@@ -250,7 +243,7 @@ After triage, present the refined list:
 
 > **Today's plate**:
 > - Continuing: [items marked continue]
-> - Ready to start: [unblocked beads by priority]
+> - Ready to start: [unblocked work by priority]
 
 Ask: "Pick your top 1-3 for today" (or let the user free-text a focus).
 
@@ -261,7 +254,7 @@ For each focus item:
 2. Show relevant context (recent commits, related files)
 3. Set tab title based on primary focus
 
-> **Ready.** Memory loaded for [project]. [X beads issues] in your focus.
+> **Ready.** Memory loaded for [project]. [X items] in your focus.
 
 ### Step 8: Focus Drift Detection (Background)
 
@@ -271,13 +264,13 @@ For longer sessions, consider starting a background ambient check:
 /loop 2h /pulse
 ```
 
-This fires `/pulse` every 2 hours to catch beads drift, new mail, and reminders without the user having to ask. The loop is session-scoped — dies on exit, no cleanup needed. Only start this when the session is expected to last 2+ hours.
+This fires `/pulse` every 2 hours to catch new mail and reminders without the user having to ask. The loop is session-scoped — dies on exit, no cleanup needed. Only start this when the session is expected to last 2+ hours.
 
 ---
 
 ## Context Recovery
 
 If there's no recent daily log (first time using `/eod`, or after a gap):
-- Fall back to `git log` and `bd list` for context
+- Fall back to `git log` for context
 - Note: "No daily log found — you might want to start using `/eod` to close out days."
 - Don't block on missing logs — provide what context is available

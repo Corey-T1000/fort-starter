@@ -3,7 +3,7 @@ name: switch
 description: |
   Use when the user says "switch to", "jump to", "let's work on", "context switch",
   "move to", or wants to transition between Fort projects mid-session.
-  Snapshots current state, loads target project memory and beads, sets tab title.
+  Snapshots current state, loads target project memory, sets tab title.
 user_invocable: true
 argument-hint: "[project]"
 arguments:
@@ -56,22 +56,18 @@ Briefly assess current state (don't spend time on this — it's a snapshot, not 
 ```bash
 # Any uncommitted changes?
 git status --short
-
-# Any in-progress beads?
-bd list --status=in_progress
 ```
 
 Report concisely:
 
-> **Current state**: [clean / X uncommitted files]. [Y beads in_progress].
+> **Current state**: [clean / X uncommitted files].
 
 If there are uncommitted changes, note them but **do not auto-commit or stash**. Just make the user aware.
 
 ### Step 3: Load Target Context
 
 1. **Read memory file**: Load the target project's memory file from the registry
-2. **Check beads**: Run `bd ready` and filter for issues related to the target project (by title/description keywords)
-3. **Recent activity**: `git log --oneline -5 -- <path-prefix>` for recent commits in that project area
+2. **Recent activity**: `git log --oneline -5 -- <path-prefix>` for recent commits in that project area
 
 ### Step 4: Set Up
 
@@ -83,9 +79,6 @@ tab-title "fort:<tab-title>"
 
 > **Switched to [project]** (JD [number])
 > Memory loaded from `memory/XX-topic.md`
->
-> **Open work**:
-> - [relevant beads issues]
 >
 > **Recent**:
 > - [last 2-3 commits in this area]

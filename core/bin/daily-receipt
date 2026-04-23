@@ -6,7 +6,6 @@
 #   2. Memory file git changes — what memory files were updated today
 #   3. knowledge base notes — Obsidian notes created/modified today
 #   4. Git commits — what shipped across all repos
-#   5. Beads closed — issue tracker completions
 #
 # Usage:
 #   daily-receipt            — gather + print
@@ -318,31 +317,7 @@ print(json.dumps(sorted(projects)))
 fi
 
 # ============================================================
-# 4. BEADS CLOSED TODAY
-# ============================================================
-BEADS_CLOSED_JSON="[]"
-BEADS_CLOSED_COUNT=0
-if command -v bd &>/dev/null; then
-  BEADS_CLOSED_JSON=$(bd list --status=closed 2>/dev/null | python3 -c "
-import sys, json
-
-today = '${TODAY}'
-beads = []
-for line in sys.stdin:
-    line = line.strip()
-    if not line or line.startswith('ID') or line.startswith('--'):
-        continue
-    parts = [p.strip() for p in line.split('|')]
-    if len(parts) >= 2 and today in line:
-        beads.append({'id': parts[0], 'title': parts[1]})
-
-print(json.dumps(beads))
-" 2>/dev/null || echo "[]")
-  BEADS_CLOSED_COUNT=$(echo "$BEADS_CLOSED_JSON" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
-fi
-
-# ============================================================
-# 5. SESSION HOURS (from git timestamps across all repos)
+# 4. SESSION HOURS (from git timestamps across all repos)
 # ============================================================
 SESSION_HOURS=0
 if [[ "$COMMIT_COUNT" -gt 0 ]]; then
@@ -390,11 +365,9 @@ payload = {
     "stats": {
         "commit_count": $COMMIT_COUNT,
         "files_changed": ${FILES_CHANGED:-0},
-        "beads_closed": $BEADS_CLOSED_COUNT,
         "facts_captured": $FACTS_CAPTURED,
         "session_hours": $SESSION_HOURS
-    },
-    "beads_closed": $BEADS_CLOSED_JSON
+    }
 }
 
 print(json.dumps(payload, indent=2))
@@ -426,7 +399,7 @@ HTTP_CODE=$(echo "$RESPONSE" | tail -1)
 BODY=$(echo "$RESPONSE" | sed '$d')
 
 if [[ "$HTTP_CODE" -ge 200 && "$HTTP_CODE" -lt 300 ]]; then
-  echo "Daily receipt printed ($COMMIT_COUNT commits, $FACTS_CAPTURED facts, ${FILES_CHANGED:-0} files)"
+  echo "Daily receipt printed ($COMMIT_COUNT commits, $FACTS_CAPTURED facts captured, ${FILES_CHANGED:-0} files)"
 else
   echo "Print failed (HTTP $HTTP_CODE): $BODY" >&2
   exit 1

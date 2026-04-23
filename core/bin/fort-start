@@ -3,7 +3,6 @@
 #
 # Local (this Mac):
 #   - Orbstack sandbox VM
-#   - Beads issue tracker
 #
 # Remote (configured via FORT_REMOTE_IP):
 #   - Fort Mail, ntfy, Redis, and all deployed services
@@ -51,7 +50,7 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Starts the Orbstack sandbox and checks remote server services."
             echo ""
-            echo "Local:   Orbstack sandbox VM, Beads"
+            echo "Local:   Orbstack sandbox VM"
             echo "Remote:  Fort Mail, ntfy, Redis (on remote server)"
             echo ""
             echo "To manage remote server: ssh ${FORT_REMOTE_HOST:-remote} 'cd /server/fort && docker compose ...'"
@@ -84,13 +83,6 @@ if command -v orb &> /dev/null; then
     fi
 else
     warn "Orbstack not installed (sandbox unavailable)"
-fi
-
-# Check Beads
-if command -v bd &> /dev/null; then
-    success "Beads available"
-else
-    warn "Beads not found"
 fi
 
 # --- Remote ---

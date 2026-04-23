@@ -1,7 +1,7 @@
 #!/bin/bash
 # Fort Sync - Push local data to remote server (manual, on-demand)
 #
-# Syncs: Fort Memory (Memory), Beads issues, notes, CLAUDE.md
+# Syncs: Fort Memory (Memory), notes, CLAUDE.md
 # These are read by the Fort Agent container on remote server.
 #
 # Usage: fort-sync [--dry-run]
@@ -47,7 +47,6 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Syncs:"
             echo "  Fort Memory (Memory)  →  ${FORT_REMOTE_HOST:-remote}:~/fort-memory/"
-            echo "  Beads issues        →  ${FORT_REMOTE_HOST:-remote}:~/fort-data/beads/"
             echo "  Notes               →  ${FORT_REMOTE_HOST:-remote}:~/fort-data/notes/"
             echo "  CLAUDE.md           →  ${FORT_REMOTE_HOST:-remote}:~/fort-data/CLAUDE.md"
             echo ""
@@ -76,7 +75,7 @@ fi
 success "remote server reachable"
 
 # Ensure remote directories exist
-ssh ${FORT_REMOTE_HOST:-remote} "mkdir -p ~/fort-data/beads ~/fort-data/notes ~/fort-memory" 2>/dev/null
+ssh ${FORT_REMOTE_HOST:-remote} "mkdir -p ~/fort-data/notes ~/fort-memory" 2>/dev/null
 
 # Fort Memory (Memory)
 if [ -d "$DOLT_DB/.dolt" ]; then
@@ -86,16 +85,6 @@ if [ -d "$DOLT_DB/.dolt" ]; then
         || error "Fort Memory sync failed"
 else
     warn "Fort Memory not found at $DOLT_DB — skipping"
-fi
-
-# Beads
-if [ -f "$FORT_ROOT/.beads/issues.jsonl" ]; then
-    log "Syncing Beads issues..."
-    rsync $RSYNC_FLAGS "$FORT_ROOT/.beads/issues.jsonl" "${FORT_REMOTE_HOST:-remote}:~/fort-data/beads/" 2>/dev/null \
-        && success "Beads synced" \
-        || error "Beads sync failed"
-else
-    warn "Beads issues not found — skipping"
 fi
 
 # Notes

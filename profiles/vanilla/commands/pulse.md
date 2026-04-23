@@ -2,7 +2,7 @@
 name: pulse
 description: |
   Lightweight status check the assistant runs at natural breaks.
-  Checks Fort Mail, active workers, beads drift, and pending reminders.
+  Checks Fort Mail, active workers, and pending reminders.
   Use when the user says "pulse", "quick check", "anything happening?", or called by the assistant at natural breaks.
 user_invocable: true
 context: fork
@@ -36,12 +36,6 @@ git worktree list 2>/dev/null | grep -v "bare\|main"
 ```
 Report: count of active worktrees. Skip if none.
 
-### Beads Drift
-```bash
-bd list --status=in_progress 2>/dev/null
-```
-Compare against what the user is actually working on. If there's a mismatch (working on something not tracked, or tracked something not being worked on), note it. Skip if aligned.
-
 ### Reminders
 ```bash
 cat scratch/reminders-$(date +%Y-%m-%d).md 2>/dev/null
@@ -63,7 +57,7 @@ If everything is clear:
 - **Not a dashboard** — use `fort-status` for that
 - **Not a briefing** — use `/briefing` for comprehensive status
 - **No actions** — pulse only reports. It doesn't offer to fix things, open mail, or clear reminders. The assistant handles follow-up if the user reacts to a pulse finding.
-- **No context window bloat** — don't read full mail messages or beads details. Counts only.
+- **No context window bloat** — don't read full mail messages. Counts only.
 
 ## Background Mode
 
@@ -74,7 +68,7 @@ The assistant can wire pulse as a periodic background check:
 ```
 
 **Background behavior differs from interactive:**
-- Only surface findings when something **changed** since the last check (new mail, new reminder, beads drift detected)
+- Only surface findings when something **changed** since the last check (new mail, new reminder)
 - If everything is still "all clear", stay **silent** — don't output "All clear" every 10 minutes
 - Recommended: start during `/bod` when the session is expected to be long
 - The loop is session-scoped — dies when the session ends, no cleanup needed

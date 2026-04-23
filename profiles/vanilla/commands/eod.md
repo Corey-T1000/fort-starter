@@ -56,12 +56,6 @@ Run these in parallel:
 git log --since="today 00:00" --oneline --all --no-merges
 ```
 ```bash
-bd list --status=in_progress 2>/dev/null
-```
-```bash
-bd list --status=closed 2>/dev/null
-```
-```bash
 git diff --stat HEAD~5
 ```
 
@@ -131,7 +125,7 @@ Format:
 - [What got done — commits, features, fixes, deploys]
 
 ## In Progress
-- [What's still open — beads in_progress, uncommitted work]
+- [What's still open — uncommitted work, open branches, parked items]
 
 ## Decisions
 - [Any architectural or design decisions made today]
@@ -148,7 +142,7 @@ Format:
 - [Skip this section if no Linear activity]
 
 ## Tomorrow
-- [Top priorities for next session based on open beads and momentum]
+- [Top priorities for next session based on open work and momentum]
 ```
 
 Keep it concise — this is a reference log, not a journal. Bullet points, not paragraphs. Skip sections that have nothing to report (except Shipped — always include that, even if it's just "config tweaks").
@@ -166,13 +160,13 @@ If the file doesn't exist, create it (same template as `/bod` Step 2.5).
 **Enrich these sections:**
 
 1. **Fort Activity** — Replace the placeholder with a bullet list of what we worked on today:
-   - Use the git log and beads data from Step 1
+   - Use the git log data from Step 1
    - Focus on outcomes, not process: "Built bidirectional daily notes integration" not "edited 4 skill files"
    - Keep to 3-6 bullets
 
 2. **Accomplishments** — Append any shipped items that aren't already listed (the user may have added some manually)
 
-3. **Tomorrow's Focus** — Append Fort-suggested focus items from Step 4 (beads priorities) alongside any the user already wrote
+3. **Tomorrow's Focus** — Append Fort-suggested focus items from Step 4 alongside any the user already wrote
 
 **Important:** Preserve anything the user wrote in these sections — append, don't overwrite. Read the file first, check for existing content, and merge.
 
@@ -184,10 +178,9 @@ Run `/devlog` to generate today's devlog entry from the session data gathered in
 
 Surface the top priorities for the next session:
 
-1. Run `bd ready` to see unblocked issues
-2. Sort by priority (P0 first)
-3. Include any in_progress work that should continue
-4. Present as a brief "tomorrow's plate" summary
+1. Pull from open branches, parked items, and momentum from today's work
+2. Include any in-progress threads that should continue
+3. Present as a brief "tomorrow's plate" summary
 
 If there are more than 5 items, highlight the top 3 and note the rest exist.
 
@@ -196,7 +189,6 @@ If there are more than 5 items, highlight the top 3 and note the rest exist.
 Invoke `/distill` to capture any session learnings into Fort Memory. This handles:
 - Extracting operational knowledge from the session
 - Filing into JD-numbered memory topic files
-- Flushing beads to JSONL
 
 ### Step 6: Clean Up Session Files
 
@@ -209,7 +201,7 @@ rm -f scratch/assistant-state.md
 
 Close with a brief day summary:
 
-> **Day wrapped.** 3 commits, 2 beads closed, daily log written.
+> **Day wrapped.** 3 commits, daily log written.
 > Tomorrow's focus: [top 1-2 items]
 
 ## Relationship to /distill

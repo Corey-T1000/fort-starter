@@ -31,8 +31,6 @@ fi
 
 cd "$FORT_DIR"
 git log --since="today 00:00" --oneline --all --no-merges > "$TMPDIR/git.txt" 2>/dev/null || echo "No commits today" > "$TMPDIR/git.txt"
-bd list --status=closed 2>/dev/null | head -30 > "$TMPDIR/closed.txt" || echo "No closed beads" > "$TMPDIR/closed.txt"
-bd list --status=in_progress 2>/dev/null | head -20 > "$TMPDIR/active.txt" || echo "No active beads" > "$TMPDIR/active.txt"
 
 # 2. Build JSON payload safely via Python
 python3 -c "
@@ -57,8 +55,6 @@ payload = json.dumps({
     'prettyDate': pretty,
     'sessionLog': read('session.txt'),
     'gitLog': read('git.txt'),
-    'beadsClosed': read('closed.txt'),
-    'beadsActive': read('active.txt')
 })
 
 with open(os.path.join(tmpdir, 'payload.json'), 'w') as f:

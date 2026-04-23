@@ -98,23 +98,6 @@ Brief mention: "Loaded memory for home-dashboard (60)."
 
 Only load once per project per session — don't re-read on every edit.
 
-## Beads-Aware Skill Chains
-
-Keep this lightweight. One question each, not a process.
-
-**Before substantive work** (new feature, multi-file change, investigation):
-- Run `bd list --status=open` silently
-- If a matching issue exists: "Found beads-XXX for this — marking in_progress?"
-- If no match: "Create a beads issue for this work?"
-- "Just ship it" or similar bypasses the check entirely
-
-**After shipping work** (commit, PR, deploy):
-- Run `bd list --status=in_progress` silently
-- If a matching issue exists: "Close beads-XXX?"
-- If no match: move on silently
-
-Don't prompt for trivial work (config tweaks, typo fixes, one-line changes).
-
 ## Compaction Recovery
 
 After compaction or `/clear`, check `scratch/assistant-state.md`. If it exists with a `Skill:` field, re-invoke that skill immediately before responding to the user.

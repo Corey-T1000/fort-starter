@@ -57,7 +57,7 @@ The user's been in and out all day. Skip all checks. Restore state and go.
 cat scratch/assistant-state.md 2>/dev/null
 ```
 
-Restore focus and tab title from the state file. No mail check, no beads check, no memory recall.
+Restore focus and tab title from the state file. No mail check, no memory recall.
 
 Surface as a one-liner:
 > **Back.** Still on [focus].
@@ -70,9 +70,6 @@ Update `scratch/assistant-state.md` timestamp only.
 Moderate reconnect — enough time has passed that things may have changed.
 
 Run in parallel:
-```bash
-bd list --status=in_progress 2>/dev/null
-```
 ```bash
 curl -s -H "Authorization: Bearer $(cat ~/.fort-env 2>/dev/null | grep FORT_MAIL_API_KEY | cut -d= -f2)" "http://${FORT_REMOTE_IP:-127.0.0.1}:8080/api/agents/$(grep -o '"claudes-fort-[^"]*"' "${FORT_ROOT:-$HOME/claudes-fort}/mail/agents.json" 2>/dev/null | head -1 | tr -d '"' || echo "claudes-fort")/inbox" 2>/dev/null
 ```
@@ -100,7 +97,6 @@ Update `scratch/assistant-state.md` if focus changes.
 
 Run `/bod` (quick mode) for context loading. This is the single source of truth for first-session starts — don't reimplement it. `/bod` handles:
 - Reading the last session log (including "Tomorrow" section)
-- Checking beads (in_progress + ready)
 - Recent git activity
 - Setting tab title based on focus
 
@@ -137,14 +133,13 @@ If a `focus` argument was provided, start on it immediately.
 Otherwise, use **AskUserQuestion**:
 - Header: "Focus"
 - Question: "What are we working on today?"
-- Options: [top 3-4 from: `/bod`'s "Tomorrow" items, in-progress beads, ready beads by priority]
+- Options: [top 3-4 from: `/bod`'s "Tomorrow" items, recent in-progress work]
 
 Based on the answer:
 1. Route to `/switch` if it's a project context switch
 2. Load the relevant memory file (via workflow-intelligence routing table)
-3. If a beads issue matches, mark it in_progress
-4. Write `scratch/assistant-state.md` with current focus (see Compaction Recovery)
-5. Update tab title to match the new focus (same routing table lookup as Step 1a). This overrides whatever `/bod` set initially.
+3. Write `scratch/assistant-state.md` with current focus (see Compaction Recovery)
+4. Update tab title to match the new focus (same routing table lookup as Step 1a). This overrides whatever `/bod` set initially.
 
 ---
 
@@ -159,7 +154,6 @@ Classify what the user says, announce the route, dispatch. Always use the **exis
 | Intent | Route to | Announcement |
 |--------|----------|--------------|
 | **Work & Tasks** | | |
-| "What's on my plate?" | `bd ready` + `bd list --status=in_progress` | "Checking beads..." |
 | "What did I do today/yesterday?" | Read session log + `git log --since` | "Pulling up recent activity..." |
 | "Let's work on [project]" / "switch to X" | `/switch` | "Switching context to X..." |
 | "Ship it" / "commit this" | `/ship` | "Handing off to `/ship`..." |
@@ -213,7 +207,6 @@ Classify what the user says, announce the route, dispatch. Always use the **exis
 Only these should happen inline — everything else gets dispatched:
 
 - One-liner answers to simple questions
-- A single `bd` command
 - A single file read (to answer a question, not to investigate)
 - Fort Mail inbox check
 - Date, time
@@ -291,7 +284,6 @@ Sub-agents don't see the conversation. Always include:
 ```
 Project: [current focus — use /switch project registry for name→path mapping]
 Memory: [loaded memory file path — use workflow-intelligence routing table]
-Active bead: [beads-XXX if relevant]
 Task: [specific thing to do]
 Constraints: [what not to do — e.g., don't commit, don't touch other projects]
 Return: [what to report back — summary, diff, file list, etc.]
@@ -375,7 +367,6 @@ New issue on Design:
 - Don't ask about Linear tracking for trivial work (config tweaks, one-line fixes)
 - Don't nag if the user skips the offer — move on silently
 - Don't auto-create issues without confirmation (HITL always)
-- Don't duplicate workflow-intelligence.md's beads-aware chains — Linear tracking is separate from beads
 
 ---
 
@@ -385,7 +376,7 @@ The assistant surfaces relevant info at **natural breaks** — not interrupting 
 
 ### Pulse Checks
 
-At natural breaks (topic change, after a task completes, quiet moments), run `/pulse` for a lightweight status check. Pulse handles: Fort Mail, active workers, beads drift, and pending reminders. It returns a compact one-liner — no context bloat.
+At natural breaks (topic change, after a task completes, quiet moments), run `/pulse` for a lightweight status check. Pulse handles: Fort Mail, active workers, and pending reminders. It returns a compact one-liner — no context bloat.
 
 ### Semantic Awareness (beyond pulse)
 
@@ -405,7 +396,6 @@ One-liner, not interruptive:
 Don't re-trigger things workflow-intelligence.md already handles:
 - Research capture prompts (workflow-intelligence fires these)
 - Memory loading before edits (workflow-intelligence fires this)
-- Beads-aware skill chains (workflow-intelligence fires these)
 - Post-debug hookify prompts (workflow-intelligence fires these)
 
 The assistant benefits from all of these automatically. No duplication needed.
@@ -437,7 +427,6 @@ The hooks catch mechanical safety. The assistant adds **semantic** safety:
 
 - Reading any file
 - Writing to `scratch/`, `notes/`, `logs/`, `memory/`
-- `bd` commands
 - Searching/grepping
 - Fort Mail inbox checks and sends (agent-to-agent comms)
 - Setting tab titles
@@ -449,7 +438,7 @@ The hooks catch mechanical safety. The assistant adds **semantic** safety:
 ## Ending the Session
 
 1. Surface pending reminders from `scratch/reminders-YYYY-MM-DD.md`
-2. Route to `/eod` — it handles the full closing workflow (daily log, distill, beads sync)
+2. Route to `/eod` — it handles the full closing workflow (daily log, distill)
 3. `/eod` cleans up reminder files as part of its flow
 
 ---
@@ -473,7 +462,6 @@ Format:
 Skill: /assistant
 Focus: [current project/task]
 Memory loaded: [memory file path]
-Active bead: [beads-XXX or none]
 Tab: [derived from focus via MEMORY.md routing table]
 Dispatched: [list of background tasks still running, if any]
 ```
