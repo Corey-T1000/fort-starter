@@ -106,14 +106,16 @@ The setup this was extracted from, today:
 
 | Thing | Count |
 |-------|-------|
-| Hooks running | **42** (security / workflow / quality) |
-| Memory topic files | **87** (JD-indexed) |
+| Hooks running | **54** (security / workflow / quality) |
+| Memory files | **38 JD-indexed topics · 60 session narratives · 62 feedback files** |
 | Agents | **12** (4 worker profiles + 8 skill-specialized) |
-| Skills invokable | **45+** |
-| Commits since Dec 2025 | **229** |
-| Session logs captured | **53** |
-| Semantic stream entries (decisions / deploys / ships / research captured via `fort-stream`) | **284** |
+| Skills invokable | **141** |
+| Commits since Dec 2025 | **381** |
+| Session logs captured | **62** |
+| Semantic stream entries (decisions / deploys / ships / research captured via `fort-stream`) | **361** |
 | Concurrent worktrees running on any given day | **2–4** |
+
+<sub>Last measured 2026-04-23 · regenerate via <code>bin/fort-receipts</code></sub>
 
 The starter ships lighter on purpose — **23 hooks, 17 skills, 4 worker agents**. It grows with you, not at you.
 
