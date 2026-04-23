@@ -1,0 +1,101 @@
+#!/bin/bash
+# fort-receipts — regenerate the README "Receipts" table from your live Fort.
+#
+# Run from your Fort root. Prints a markdown table with today's counts for
+# hooks, memory layers, agents, skills, commits, session logs, fort-stream
+# entries, and active worktrees. Every count falls back to 0 if the
+# underlying directory doesn't exist, so this is safe to run on a fresh
+# fork. Pipe the output into the README or keep it handy for a quarterly
+# drift check. After fort-bootstrap runs, this script lives at
+# bin/fort-receipts in your workspace.
+
+set -u
+
+today="$(date +%Y-%m-%d)"
+
+# --- Hooks (shell + python) ---
+if [ -d .claude/hooks ]; then
+    hooks="$(find .claude/hooks -type f \( -name "*.sh" -o -name "*.py" \) 2>/dev/null | wc -l | tr -d ' ')"
+else
+    hooks=0
+fi
+
+# --- Memory layers ---
+if [ -d memory ]; then
+    mem_topics="$(ls memory/[0-9]*.md 2>/dev/null | wc -l | tr -d ' ')"
+    mem_sessions="$(ls memory/session_*.md 2>/dev/null | wc -l | tr -d ' ')"
+    mem_feedback="$(ls memory/feedback_*.md 2>/dev/null | wc -l | tr -d ' ')"
+else
+    mem_topics=0
+    mem_sessions=0
+    mem_feedback=0
+fi
+
+# --- Agents (no worker-vs-specialized breakdown — too fragile to auto-classify) ---
+if [ -d .claude/agents ]; then
+    agents="$(find .claude/agents -type f -name "*.md" 2>/dev/null | wc -l | tr -d ' ')"
+else
+    agents=0
+fi
+
+# --- Skills invokable ---
+# Plugin SKILL.md files (user-global) + slash commands (project + user-global).
+plugin_skills=0
+if [ -d "$HOME/.claude/plugins" ]; then
+    plugin_skills="$(find "$HOME/.claude/plugins" -type f -name "SKILL.md" 2>/dev/null | wc -l | tr -d ' ')"
+fi
+project_cmds=0
+if [ -d .claude/commands ]; then
+    project_cmds="$(find .claude/commands -type f -name "*.md" 2>/dev/null | wc -l | tr -d ' ')"
+fi
+user_cmds=0
+if [ -d "$HOME/.claude/commands" ]; then
+    user_cmds="$(find "$HOME/.claude/commands" -type f -name "*.md" 2>/dev/null | wc -l | tr -d ' ')"
+fi
+skills=$((plugin_skills + project_cmds + user_cmds))
+
+# --- Commits since Dec 2025 ---
+if git rev-parse --git-dir >/dev/null 2>&1; then
+    commits="$(git log --oneline --since="2025-12-01" 2>/dev/null | wc -l | tr -d ' ')"
+else
+    commits=0
+fi
+
+# --- Session logs ---
+if [ -d logs ]; then
+    session_logs="$(ls logs/*.md 2>/dev/null | wc -l | tr -d ' ')"
+else
+    session_logs=0
+fi
+
+# --- Fort-stream entries (decisions / deploys / ships / research / etc.) ---
+if [ -d logs ]; then
+    stream="$(grep -hE '\[(decision|deploy|close|research|blocker|ship|audit)\]' logs/*.md 2>/dev/null | wc -l | tr -d ' ')"
+else
+    stream=0
+fi
+
+# --- Worktrees (current count — not the "2–4" editorial phrasing) ---
+if git rev-parse --git-dir >/dev/null 2>&1; then
+    worktrees="$(git worktree list 2>/dev/null | wc -l | tr -d ' ')"
+else
+    worktrees=0
+fi
+
+# --- Output ---
+cat <<EOF
+Fort receipts — ${today}
+
+| Thing | Count |
+|-------|-------|
+| Hooks running | **${hooks}** (security / workflow / quality) |
+| Memory files | **${mem_topics} JD-indexed topics · ${mem_sessions} session narratives · ${mem_feedback} feedback files** |
+| Agents | **${agents}** |
+| Skills invokable | **${skills}** |
+| Commits since Dec 2025 | **${commits}** |
+| Session logs captured | **${session_logs}** |
+| Semantic stream entries (decisions / deploys / ships / research captured via \`fort-stream\`) | **${stream}** |
+| Worktrees currently active | **${worktrees}** |
+
+<sub>Last measured ${today} · regenerate via <code>bin/fort-receipts</code></sub>
+EOF
