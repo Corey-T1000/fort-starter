@@ -1,0 +1,974 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Customer one-pager diff viewer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Inter, system-ui, -apple-system, sans-serif; line-height: 1.5; max-width: 1400px; margin: 0 auto; padding: 24px; background: #f5f5f5; color: #1e1424; }
+  header.top { margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid #dedddf; }
+  header.top h1 { font-size: 22px; font-weight: 600; margin-bottom: 8px; }
+  header.top p { font-size: 13px; color: #655d69; margin-bottom: 12px; }
+  nav.jump { display: flex; flex-wrap: wrap; gap: 8px; }
+  nav.jump a { font-size: 12px; padding: 6px 12px; background: white; border: 1px solid #dedddf; border-radius: 999px; text-decoration: none; color: #1e1424; }
+  nav.jump a:hover { background: #1e1424; color: white; border-color: #1e1424; }
+  section.customer { margin: 32px 0; background: white; border-radius: 12px; padding: 24px; scroll-margin-top: 16px; }
+  section.customer > h2 { font-size: 22px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  section.customer > h2 small { font-size: 12px; font-weight: 400; color: #79727e; font-family: ui-monospace, SFMono-Regular, monospace; }
+  .columns { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  .col h3 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #79727e; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid #dedddf; }
+  .col.live { background: #faf6f0; padding: 16px; border-radius: 8px; }
+  .col.ours { background: #f0f3fa; padding: 16px; border-radius: 8px; }
+  .block { margin-bottom: 14px; }
+  .label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #79727e; margin-bottom: 4px; }
+  .text { font-size: 14px; color: #1e1424; }
+  .title-text { font-size: 17px; font-weight: 600; line-height: 1.3; }
+  .subtitle-text { font-size: 14px; color: #514856; }
+  .h2-text { font-size: 14px; font-weight: 600; color: #3f3644; }
+  blockquote { font-size: 14px; font-style: italic; padding: 8px 12px; border-left: 3px solid #aaa5ac; color: #3f3644; background: rgba(255,255,255,0.5); }
+  .attr { font-size: 12px; color: #655d69; margin-top: 4px; }
+  ul.stats, ul.bullets { list-style: none; }
+  ul.stats li, ul.bullets li { font-size: 13px; padding: 4px 0 4px 14px; position: relative; }
+  ul.bullets li::before { content: "\2014"; position: absolute; left: 0; color: #79727e; }
+  ul.stats li::before { content: "\25B8"; position: absolute; left: 0; color: #79727e; }
+  @media (max-width: 900px) { .columns { grid-template-columns: 1fr; } }
+
+  /* ── Visual pairing layer ─────────────────────────────────────── */
+  .block { position: relative; padding: 8px 36px 8px 10px; border-radius: 6px; transition: background-color 160ms ease, opacity 160ms ease, box-shadow 160ms ease; }
+  .block[data-pair] { cursor: pointer; }
+
+  /* Numbered pair badge (1-indexed, set in JS as data-pair-num) */
+  .block[data-pair-num]::before {
+    content: attr(data-pair-num);
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #ffffff;
+    color: #1e1424;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    border-radius: 999px;
+    border: 1px solid rgba(30,20,36,0.18);
+    box-shadow: 0 1px 2px rgba(30,20,36,0.08);
+    line-height: 1;
+    z-index: 1;
+  }
+  .col.live .block[data-pair="0"], .col.ours .block[data-pair="0"] { background: rgba(255, 234, 167, 0.55); }
+  .col.live .block[data-pair="1"], .col.ours .block[data-pair="1"] { background: rgba(200, 230, 201, 0.55); }
+  .col.live .block[data-pair="2"], .col.ours .block[data-pair="2"] { background: rgba(179, 229, 252, 0.55); }
+  .col.live .block[data-pair="3"], .col.ours .block[data-pair="3"] { background: rgba(255, 204, 188, 0.55); }
+  .col.live .block[data-pair="4"], .col.ours .block[data-pair="4"] { background: rgba(209, 196, 233, 0.6); }
+  .col.live .block[data-pair="5"], .col.ours .block[data-pair="5"] { background: rgba(248, 187, 208, 0.5); }
+  .col.live .block[data-pair="6"], .col.ours .block[data-pair="6"] { background: rgba(178, 223, 219, 0.6); }
+  .col.live .block[data-pair="7"], .col.ours .block[data-pair="7"] { background: rgba(255, 249, 196, 0.7); }
+  .col.live .block[data-pair="8"], .col.ours .block[data-pair="8"] { background: rgba(215, 204, 200, 0.6); }
+  .col.live .block[data-pair="9"], .col.ours .block[data-pair="9"] { background: rgba(197, 202, 233, 0.6); }
+  .col.live .block[data-pair="10"], .col.ours .block[data-pair="10"] { background: rgba(255, 224, 178, 0.6); }
+  .col.live .block[data-pair="11"], .col.ours .block[data-pair="11"] { background: rgba(207, 216, 220, 0.65); }
+
+  /* Novel block (OURS with no good match) */
+  .block.novel { background: rgba(120, 120, 130, 0.08); border-left: 2px solid #aaa5ac; }
+  .block.novel::after {
+    content: "✦ NOVEL";
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #79727e;
+    background: rgba(255,255,255,0.7);
+    padding: 2px 5px;
+    border-radius: 3px;
+  }
+
+  /* Edit-type badge (pill on OURS blocks; sits above the block, on the left)
+     Visually paired with the number badge on the right.            */
+  .edit-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 2px 6px;
+    border-radius: 999px;
+    margin-bottom: 4px;
+    line-height: 1.2;
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    border: 1px solid transparent;
+    vertical-align: middle;
+  }
+  .edit-badge.verbatim { background: rgba(46, 125, 50, 0.10); color: #1b5e20; border-color: rgba(46, 125, 50, 0.28); }
+  .edit-badge.trimmed  { background: rgba(2, 119, 189, 0.10); color: #01579b; border-color: rgba(2, 119, 189, 0.28); }
+  .edit-badge.edited   { background: rgba(239, 108, 0, 0.12); color: #b53d00; border-color: rgba(239, 108, 0, 0.32); }
+
+  /* Word-level diff: words added in OURS (not present in paired LIVE block) */
+  .word-added {
+    text-decoration: underline;
+    text-decoration-color: #2e7d32;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 2px;
+  }
+  blockquote .word-added { text-decoration-color: #2e7d32; }
+
+  /* Dropped-from-source footnote */
+  .dropped-words {
+    margin-top: 6px;
+    font-size: 10.5px;
+    line-height: 1.4;
+    color: #79727e;
+    font-style: italic;
+    border-top: 1px dashed rgba(30,20,36,0.12);
+    padding-top: 4px;
+  }
+  .dropped-words .dropped-label {
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 9px;
+    font-weight: 700;
+    font-style: normal;
+    color: #655d69;
+    margin-right: 4px;
+  }
+
+  /* Click-to-focus state */
+  .customer.focusing .block { opacity: 0.25; }
+  .customer.focusing .block.is-focused { opacity: 1; box-shadow: 0 0 0 2px #1e1424, 0 2px 8px rgba(30,20,36,0.18); z-index: 2; }
+
+  /* Sliding alignment — OURS partner translates to sit beside its LIVE match.
+     Transition is on transform so the block physically glides into position. */
+  .block { transition: background-color 160ms ease, opacity 160ms ease, box-shadow 160ms ease, transform 350ms cubic-bezier(0.22, 0.61, 0.36, 1); will-change: transform; }
+  .block.is-slid { z-index: 3 !important; box-shadow: 0 0 0 2px #1e1424, 0 12px 28px rgba(30,20,36,0.22) !important; }
+
+  /* Hover affordance for paired OURS blocks */
+  .col.ours .block[data-pair]:hover { box-shadow: 0 0 0 1px rgba(30,20,36,0.25); }
+
+  /* Floating tooltip */
+  #pair-tooltip {
+    position: fixed;
+    pointer-events: none;
+    background: #1e1424;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 6px 9px;
+    border-radius: 5px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+    opacity: 0;
+    transform: translateY(-4px);
+    transition: opacity 120ms ease, transform 120ms ease;
+    z-index: 1000;
+    max-width: 320px;
+    line-height: 1.35;
+  }
+  #pair-tooltip.show { opacity: 1; transform: translateY(0); }
+  #pair-tooltip .label { color: #c8c2cc; font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; display: block; margin-bottom: 2px; }
+
+  /* Legend pill at top */
+  .pairing-legend { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; color: #655d69; margin-left: 12px; }
+  .pairing-legend .swatch { display: inline-flex; gap: 2px; }
+  .pairing-legend .swatch span { width: 10px; height: 10px; border-radius: 2px; }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <h1>Customer one-pager diff viewer</h1>
+    <p>Side-by-side comparison: LIVE authzed.com/customers/* (left) vs our one-pager rebuilds (right). Sections appear in source order on each side. <span class="pairing-legend"><span class="swatch"><span style="background:#ffeaa7"></span><span style="background:#c8e6c9"></span><span style="background:#b3e5fc"></span><span style="background:#ffccbc"></span><span style="background:#d1c4e9"></span><span style="background:#f8bbd0"></span></span>Matching tints pair OURS ↔ LIVE source. Click a block to focus the pair · hover OURS for source attribution.</span></p>
+    <p style="margin-top:8px;display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:11px;color:#655d69;">
+      <strong style="font-weight:600;color:#3f3644;">Edit type:</strong>
+      <span class="edit-badge verbatim">✓ Verbatim</span><span>≥95% of OURS words appear in LIVE</span>
+      <span style="color:#dedddf;">·</span>
+      <span class="edit-badge trimmed">◐ Trimmed</span><span>subset of LIVE, words only removed</span>
+      <span style="color:#dedddf;">·</span>
+      <span class="edit-badge edited">✎ Edited</span><span>new or changed words vs LIVE</span>
+      <span style="color:#dedddf;">·</span>
+      <span style="display:inline-flex;align-items:center;gap:4px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;padding:2px 5px;border-radius:3px;background:rgba(255,255,255,0.7);border:1px solid #dedddf;color:#79727e;font-family:ui-monospace,SFMono-Regular,monospace;">✦ Novel</span><span>no LIVE source match</span>
+      <span style="color:#dedddf;">·</span>
+      <span><span class="word-added">underlined</span> = new word in OURS</span>
+    </p>
+    <nav class="jump"><a href="#turo">Turo</a><a href="#matillion">Matillion</a><a href="#netflix">Netflix</a><a href="#workday">Workday</a><a href="#openai">OpenAI</a><a href="#redpanda">Redpanda</a></nav>
+  </header>
+  <section class="customer" id="turo"><h2>Turo <small>authzed.com/customers/turo</small></h2><div class="columns"><div class="col live"><h3>LIVE</h3><div class="block"><div class="label">Title (H1)</div><div class="text title-text">Creating the blueprint for 10x growth: Turo’s authorization journey</div></div>
+<div class="block"><div class="label">Subtitle / Lede</div><div class="text subtitle-text">Turo operates a peer-to-peer car-sharing platform that lets hosts share their vehicles with users. This innovative model serves as an alternative to traditional car rental services, enabling car owners to generate income from their vehicles when not in use.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">About Turo</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Available in several countries, Turo is the world’s largest car-sharing marketplace. As of September 30, 2023, Turo boasts approximately 3.4 million active guests and 350,000 active vehicles across more than 12,000 cities in the US, UK, France, Canada, and Australia.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Permissions: stuck in park</div></div>
+<div class="block"><div class="label">Body</div><div class="text">As Turo's platform has evolved, its user base has rapidly expanded, with many hosts scaling their operations from one or two vehicles to managing large fleets. To assist with managing these fleets, hosts often shared login credentials with their employees, leading to significant security and usability issues. This revealed a critical need for a more secure and granular method of managing user access on the platform.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">In response, Turo proposed a new co-hosting feature, enabling collaborative access and management of a single host account by multiple users. Development called for a flexible authorization system that could manage delegated vehicle access within a host account while supporting dual-role users (guests and hosts).</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Unfortunately, their platform's existing authorization could not support the co-hosting requirements. As a result, the Turo team was faced with a tough decision: to refactor or not to refactor? Replacing the permissions system would require completely redefining user management and extensive rewrites across the platform's entire codebase. Not to mention, this change wouldn’t just be a challenge for the Co-hosting team, but it would be a blocker for other feature teams as well.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Ultimately, Turo made the strategic decision to refactor their authorization system. This decision meant more than just addressing a technical obstacle; it became a fundamental shift to empower their users for success. The Turo team aimed to significantly enhance the user experience and operational efficiency of the platform, underscoring their mission “to put the world’s 1.5 billion cars to better use”.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Journey to Zanzibar: researching a new authorization system</div></div>
+<div class="block"><div class="label">Body</div><div class="text">On the journey to refactoring a new authorization system, the API services team, led by Adam Safran, with Andre Sanches acting as technical lead for this project, began the discovery phase of this initiative with a destination in mind: Zanzibar.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Andre's previous research, originally conducted for a different project, identified Google Zanzibar as a promising standalone authorization model. This assessment was reinforced by Google's extensive utilization of Zanzibar and continued validation over time. Consequently, the team became intrigued by its potential relevance to Turo and was particularly interested in the model when it was publicly introduced in Google's 2019 paper.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Simultaneously, the team investigated authorization solutions employed by companies that shared similar growth trajectories and business models with Turo. This research brought them to Airbnb’s Himeji, a system inspired by Google Zanzibar, providing additional confirmation of the feasibility of a Zanzibar-based solution.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">With the confidence of Zanzibar's success, the Turo team was determined to adopt a Zanzibar-based system. Nevertheless, because Himeji and Google Zanzibar were proprietary software, Turo needed an alternative implementation. After evaluating various open-source options and consulting with other organizations and technologists, they ultimately opted for SpiceDB.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Kicking the tires: adopting SpiceDB</div></div>
+<div class="block"><div class="label">Body</div><div class="text">The Turo team considered several factors when selecting their chosen system. The team wished to prevent vendor or ecosystem lock-in, which led them to reject other Zanzibar implementations that were part of larger network offerings. AuthZed’s complete focus on building authorization solutions vastly reduced this risk of vendor lock-in. This ensured Turo’s confidence in building their system, knowing they wouldn’t be obligated to integrate with a specific identity provider or other software for which they already had a solution.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">To support organization-wide adoption, their solution needed to come equipped with robust documentation and developer tooling.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">As Andre stated:</div></div>
+<div class="block"><div class="label">Body</div><div class="text">After investigating the SpiceDB code, the Turo team found that the engineering maturity of SpiceDB:</div></div>
+<div class="block"><div class="label">Body</div><div class="text">In a remarkable display of cross-functional collaboration, the API Services and Co-hosting feature teams joined forces to build a proof of concept with SpiceDB. Their collaborative PoC demonstration effectively rallied the engineering guild and Turo was off to the races!</div></div>
+<div class="block"><div class="label">Quote</div><blockquote>“What brought me over to SpiceDB was the documentation and the playground. When you’re introducing something that’s, in hindsight, so simple, yet appears complex when you first come across it, being able to show how it works in real-time with the playground is genius.”</blockquote></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Revving up: implementing SpiceDB at Turo</div></div>
+<div class="block"><div class="label">Body</div><div class="text">To ease application development, Turo developed a system to provision ephemeral SpiceDB environments. During peak usage, hundreds of developer systems run concurrently. To cut infrastructure costs, the system uses single SpiceDB deployment and relies on optional prefixes in SpiceDB for environment isolation.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Permissions data is critical to many stakeholders, not just those on the Application or API Services teams. As a result, Turo leverages Fine-Grained Access Management to restrict their access to the SpiceDB API so that they can only access relevant data and are unable to perform any write operations.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Like many large projects, requirements changed during the development process. When it was necessary to make design changes, Adam and Andre appreciated how simple it was to modify their SpiceDB schema. Often, they’d only need to alter a single line of code in their schema without changing any code in their applications.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Andre summarized:</div></div>
+<div class="block"><div class="label">Quote</div><blockquote>&quot;Here’s authorization. You don’t need to build anything else — you just need to talk to it.&quot;</blockquote></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Cruise control: SpiceDB in production</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Because co-hosting relied on an invitation system, Turo lacked direct control over the feature’s user adoption once it was launched. To implement a gradual rollout, they opted to enable the feature one country at a time.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">As we all know, sometimes, things don’t go according to plan! When it came time to deploy to the first country, the team accidentally deployed the functionality globally and the new system received 8x of the expected traffic.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Fortunately, SpiceDB performed without a hitch. As it turned out, the larger-than-planned roll-out had a silver lining: the Permissions System proved resilient to large-scale throughput effectively, dispelling any remaining doubts about SpiceDB's capability to handle critical use cases.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Andre recalls his takeaway from the experience:</div></div>
+<div class="block"><div class="label">Quote</div><blockquote>&quot;We have an API used by every single customer on every app in the Turo platform. I had a rough idea of the level of traffic, but I didn't know exactly what it was or how we'd ramp up to that traffic. The fact that SpiceDB took in that intense traffic without any problems made me feel a lot easier with my decision to use this technology.&quot;</blockquote></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">AuthZed Dedicated: authZ in the fast lane</div></div>
+<div class="block"><div class="label">Body</div><div class="text">When teams contemplate adopting new software, they face a choice between two operational strategies: building or buying. Although developing their own Zanzibar implementation from scratch was never feasible within the timeline, the Turo team briefly considered operating SpiceDB themselves. However, after a quick discussion with the AuthZed customer success team, they determined that building and supporting the infrastructure themselves would not be cost-effective compared to purchasing AuthZed's fully managed and hosted product.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">By opting for AuthZed Dedicated, Turo avoided the need to hire more engineers or overburden their existing team with tasks such as training, designing a production environment, deploying SpiceDB, and long-term infrastructure maintenance. These activities would have required extra budget allocation and, more importantly, would have diverted valuable engineering resources away from core product development.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Adam was eager to share his thought process when making this consideration:</div></div>
+<div class="block"><div class="label">Body</div><div class="text">With their subscription to AuthZed Dedicated, Turo also gains access to AuthZed's Premium Support plan, which includes regular meetings with the customer success team and proactive support. During the onboarding process, Turo and AuthZed conducted architectural and schema reviews to align their system with design requirements, while also collaborating on optimizing SpiceDB to achieve Turo's performance goals.</div></div>
+<div class="block"><div class="label">Quote</div><blockquote>&quot;Authorization is something that has to be able to not only scale exceptionally, but also it's a decision on who is going to support that system. While we support [internal] advocacy, training, and consulting, one of the beautiful things about SpiceDB is that we're using the SaaS option so that we're not carrying the pagers for the authorization itself.&quot;</blockquote></div>
+<div class="block"><div class="label">Quote</div><blockquote>“The customer success team is fantastic. I have only praise to give them… They've always been very responsive.“ — Andre Sanches</blockquote></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Under the hood</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Turo sends tens of millions of unique requests daily in SpiceDB, with an error rate of roughly one failed request per day, caused by unrelated issues. On the day the following results were collected, they handled 71.9 million requests, peaking at over 1,500 requests per second.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Andre is delighted by the results:</div></div>
+<div class="block"><div class="label">Quote</div><blockquote>&quot;If you look at the latencies, [...] the 99th percentile are all under 15 milliseconds in the worst case. Everything is just very, very impressive from anywhere you look at it. The vast majority of our calls are all within 3ms for check permission. Everything looks just fantastic.”</blockquote></div></div><div class="col ours"><h3>OURS</h3><div class="block"><div class="label">Title</div><div class="text title-text">Creating the blueprint for 10x growth: Turo’s authorization journey</div></div>
+<div class="block"><div class="label">Subtitle</div><div class="text subtitle-text">How Turo modeled their complex authorization requirements using SpiceDB and scaled their co-hosting platform globally with the support of AuthZed Dedicated.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Permissions: stuck in park</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Hosts scaling their operations from one or two vehicles to managing large fleets often shared login credentials with their employees, leading to significant security and usability issues. Turo proposed a new co-hosting feature, enabling collaborative access and management of a single host account by multiple users.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Their platform’s existing authorization could not support the co-hosting requirements. Replacing the permissions system would require completely redefining user management — a blocker for other feature teams as well. Turo made the strategic decision to refactor their authorization system.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Journey to Zanzibar: researching a new authorization system</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Google Zanzibar was publicly introduced in Google’s 2019 paper. Airbnb’s Himeji, a system inspired by Google Zanzibar, provided additional confirmation of the feasibility of a Zanzibar-based solution. After evaluating various open-source options, Turo ultimately opted for SpiceDB.</div></div>
+<div class="block"><div class="label">Why-list</div><ul class="bullets"><li>AuthZed’s complete focus on building authorization solutions vastly reduced this risk of vendor lock-in</li><li>Robust documentation and developer tooling</li><li>Engineering maturity supported gradual or complete feature rollouts and integration with legacy systems</li><li>Often, they’d only need to alter a single line of code in their schema without changing any code in their applications</li></ul></div>
+<div class="block"><div class="label">Pull quote</div><blockquote>“Here’s authorization. You don’t need to build anything else — you just need to talk to it.”</blockquote><div class="attr">— Andre Sanches · Technical Lead, Turo</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Cruise control: SpiceDB in production</div></div>
+<div class="block"><div class="label">Body</div><div class="text">When it came time to deploy to the first country, the team accidentally deployed the functionality globally and the new system received 8x of the expected traffic. SpiceDB performed without a hitch, dispelling any remaining doubts about SpiceDB’s capability to handle critical use cases.</div></div>
+<div class="block"><div class="label">Stats / Results</div><ul class="stats"><li><strong>71.9M requests</strong> — Handled in a day</li><li><strong>1,500+ req/s</strong> — Request load</li><li><strong>&lt;15 ms p99</strong> — p95 ≤ 3 ms</li><li><strong>~1 failed request / day</strong> — Caused by unrelated issues</li></ul></div></div></div></section>
+<section class="customer" id="matillion"><h2>Matillion <small>authzed.com/customers/matillion</small></h2><div class="columns"><div class="col live"><h3>LIVE</h3><div class="block"><div class="label">Title (H1)</div><div class="text title-text">Matillion Delivers Enterprise Permissions for Everyone</div></div>
+<div class="block"><div class="label">Subtitle / Lede</div><div class="text subtitle-text">Matillion ensures success for the modern data team. They offer a comprehensive data pipeline platform that enables companies to move and transform their data, delivering analytics and AI at scale. Empowering data teams since 2011, Matillion’s cloud-first approach continuously evolves and incorporates innovative technologies. The latest evolution, Matillion Data Productivity Cloud, brings the power of Matillion’s self-managed ETL solutions to a comprehensive SaaS-based platform. Of course, accomplishing a transformation of this magnitude is no small task.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">We sat down with members of Matillion’s engineering and product teams to learn more about this transition and what brought them to AuthZed.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Enterprise workflows, meet fine-grained permissions</div></div>
+<div class="block"><div class="label">Body</div><div class="text">With the launch of Matillion’s Data Productivity Cloud, the team sought to build an everyone-ready data platform, which meant designing workflows suited to many additional personas that could be eventually further customized by end users. These workflows included everything from providing billing departments access to subscription management to defining environment-level permissions for data analysts.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Building collaborative workflows relies on a permissions system to set boundaries on users’ activities by managing what they can access, whether it’s a particular resource or a feature of the product. The Matillion team recognized the need for three levels of access management across the platform:</div></div>
+<div class="block"><div class="label">Body</div><div class="text">As Matillion designed more sophisticated permissions workflows with finer granularity and multiple layers of permissions nesting, their initial JWT-based approach lacked the flexibility and performance required.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">“Our first permissions implementation used JWTs, and it became obvious very quickly that scaling would be a problem,” said Gautam Pachnanda, Principal Engineer.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">“We molded JWTs to our use cases at the app level, but we needed to drill down into project-based and environment-based permissions,” noted Lee Power, Product Manager. “The existing method just wasn’t fit for that purpose.”</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Deciding on a Zanzibar-based authorization approach</div></div>
+<div class="block"><div class="label">Body</div><div class="text">The Matillion team knew they were building a complex permissions system that would need to grow with the platform. Before committing to building something new internally, they decided to explore existing offerings. One engineering manager already had his eye on a solution.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">“I’d come across Zanzibar when I was working on a permissions system at my previous company,” said Rahat Khan, Engineering Manager. “In that role, I learned very quickly how difficult it was to implement a permissions system, and also how much Zanzibar brought to the table. I knew if there was a solution based on Zanzibar, it would be more viable than trying to build it ourselves.”</div></div>
+<div class="block"><div class="label">Body</div><div class="text">This proved to be a valuable perspective. The Matillion team spent time looking at various Zanzibar-based implementations. They knew they were on the right track when they found many businesses building products and commercial offerings based on it, including AuthZed.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">“We knew Zanzibar was a well-proven model, but we also had a set of operational criteria we needed to fill,” noted Gautam. “There was the business need and the operational need. I wanted something that wasn’t coupled to an identity provider, had proven scalability that could sustain any growth our product experienced, that was flexible, without the constraints of JWTs, and that could run across multiple regions to a global scale. The solution had to be proven for the future. Zanzibar was a product that had been run at Google scale. We know that we won’t ever be at the scale of Google, but we also know that if it can run at that scale, we have reasonable assurance from an engineering perspective that this will stand the test of time for Matillion.”</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Finding the right permissions system: SpiceDB Enterprise</div></div>
+<div class="block"><div class="label">Body</div><div class="text">It was key to get buy-in for the selected permissions system from internal security, engineering, and operations teams from the very start. Security and operations teams researched various authorization solutions, audited these systems, and decided what path they thought made sense.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">“We gave the security and operational teams an independent opportunity to do their own audit of the various systems,” explained Gautam, “and asked them to please share their findings, which worked really well.”</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Every team came to the same conclusion: SpiceDB Enterprise was the ideal foundation for Matillion. It had a proven record of scaling and could be self-hosted with enterprise support from AuthZed– the perfect combination of factors for Matillion’s forward-looking team.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">With everyone aligned on SpiceDB Enterprise, the team began developing with their new fine-grained permissions capabilities. They designed environment-level permissions that allow certain roles to only alter development environments and not production ones. This is about as granular as you can get, and key for enterprise customers wanting greater control.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">SpiceDB Enterprise was a simple choice for Matillion. Since permissions were such a critical part of their system, the team wanted to maintain a deep understanding of their technology stack and have the ability to run it themselves with the support of the experts at AuthZed who built and regularly deploy SpiceDB as an authorization service at scale.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">“We knew we wanted to work with access control experts,” said Gautam. “The bit I enjoyed the most was the constant to and from around design decisions. Every design decision we made involved a chat with the AuthZed folks where we traded thoughts back and forth. That was really enjoyable, because we were able to validate whether the principles we were applying were suitable for SpiceDB.”</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Permissions that power collaboration across data teams</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Ultimately, adopting SpiceDB Enterprise empowered Matillion to successfully and efficiently build and launch an everyone-ready data platform. A flexible, secure, and performant permissions system was critical across the entire product.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">“Our metrics of success are about adoption,” said Lee Power. “SpiceDB Enterprise is the underlying technology behind the features we present within the application. Nearly every one of our customers using the platform has asked for what we’ve built with project roles and environment permissions.”</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Matillion’s adoption of SpiceDB Enterprise allowed their teams to easily ship a more robust product altogether. With SpiceDB in place, Matillion is ready to take on the future of data productivity!</div></div></div><div class="col ours"><h3>OURS</h3><div class="block"><div class="label">Title</div><div class="text title-text">Matillion Delivers Enterprise Permissions for Everyone</div></div>
+<div class="block"><div class="label">Subtitle</div><div class="text subtitle-text">How Matillion delivered sophisticated collaboration workflows built using SpiceDB Enterprise and leveraging AuthZed Support during a successful lift and shift of their self-hosted ETL product into the new Data Platform Cloud.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Enterprise workflows, meet fine-grained permissions</div></div>
+<div class="block"><div class="label">Body</div><div class="text">With the launch of Matillion’s Data Productivity Cloud, the team sought to build an everyone-ready data platform, which meant designing workflows suited to many additional personas that could be eventually further customized by end users.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">The Matillion team recognized the need for three levels of access management across the platform:</div></div>
+<div class="block"><div class="label">Why-list</div><ul class="bullets"><li>Account-level: administrative and application access</li><li>Project-level: workspace access</li><li>Environment-level: pipeline management access</li></ul></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Deciding on a Zanzibar-based authorization approach</div></div>
+<div class="block"><div class="label">Body</div><div class="text">“Our first permissions implementation used JWTs, and it became obvious very quickly that scaling would be a problem,” said Gautam Pachnanda, Principal Engineer.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">The Matillion team spent time looking at various Zanzibar-based implementations. They knew they were on the right track when they found many businesses building products and commercial offerings based on it, including AuthZed.</div></div>
+<div class="block"><div class="label">Pull quote</div><blockquote>“Nearly every one of our customers using the platform has asked for what we’ve built with project roles and environment permissions.”</blockquote><div class="attr">— Lee Power · Product Manager, Matillion</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Finding the right permissions system: SpiceDB Enterprise</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Every team came to the same conclusion: SpiceDB Enterprise was the ideal foundation for Matillion. It had a proven record of scaling and could be self-hosted with enterprise support from AuthZed– the perfect combination of factors for Matillion’s forward-looking team.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Permissions that power collaboration across data teams</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Ultimately, adopting SpiceDB Enterprise empowered Matillion to successfully and efficiently build and launch an everyone-ready data platform. A flexible, secure, and performant permissions system was critical across the entire product.</div></div>
+<div class="block"><div class="label">Stats / Results</div><ul class="stats"><li><strong>Account · project · environment</strong> — Three levels of access management</li><li><strong>Self-hosted with enterprise support</strong> — SpiceDB Enterprise + AuthZed</li><li><strong>Nearly every customer asked</strong> — Project roles and environment permissions</li></ul></div></div></div></section>
+<section class="customer" id="netflix"><h2>Netflix <small>authzed.com/customers/netflix</small></h2><div class="columns"><div class="col live"><h3>LIVE</h3><div class="block"><div class="label">Title (H1)</div><div class="text title-text">ABAC on SpiceDB: Enabling Netflix’s Complex Identity Types</div></div>
+<div class="block"><div class="label">Subtitle / Lede</div><div class="text subtitle-text">Netflix Engineering is always looking for security, ergonomic, and efficiency improvements; and this extends to authorization tools. While experimenting with Zanzibar approaches to authorization, Netflix found SpiceDB and used it to build a prototype for experimentation. The prototype uncovered trade-offs required to implement Attribute-Based Access Control (ABAC) in SpiceDB, which made it poorly suited for Netflix’s core requirements for application identities. To address the shortcomings, the authorization team at Netflix sponsored work to add ABAC support to SpiceDB.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">[quote] For a technical overview of the Caveats feature design process, read the blog post announcing the collaboration.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Sponsored Open Source Feature Development</div></div>
+<div class="block"><div class="label">Body</div><div class="text">With Netflix’s support, the AuthZed team pondered a Zanzibar-native approach to Attribute-Based Access Control. The requirements were captured and published as the caveated relationships proposal on GitHub for feedback from the SpiceDB community. The community’s excitement and interest became apparent through comments, reactions, and conversations on the AuthZed Discord server. Clearly, Netflix wasn’t the only one facing challenges when reconciling SpiceDB with policy-based approaches, so Netflix decided to help! By sponsoring the project, Netflix was able to help AuthZed prioritize engineering effort and accelerate adding the Caveats feature to SpiceDB.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">SpiceDB Caveats</div></div>
+<div class="block"><div class="label">Body</div><div class="text">SpiceDB Caveats allows Netflix to specify authorization policy to include system attributes. Instead of requiring the entire state of the authorization world to be persisted as relations, a system can have both relations and identity attributes used at authorization check time.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Outcome</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Netflix and AuthZed are both excited about the collaboration’s outcome. Netflix can employ another authorization tool and SpiceDB users have another option to perform rich authorization checks. Bridging the gap between policy based authorization and ReBAC is a powerful paradigm that is already benefiting companies looking to Zanzibar-based implementations for modernizing their authorization stack.</div></div></div><div class="col ours"><h3>OURS</h3><div class="block"><div class="label">Title</div><div class="text title-text">ABAC on SpiceDB: Enabling Netflix’s Complex Identity Types</div></div>
+<div class="block"><div class="label">Subtitle</div><div class="text subtitle-text">Netflix sponsored the design and development of the first-ever attribute-based access control (ABAC) model in an open source Zanzibar-inspired permissions system: SpiceDB Caveats.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Sponsored Open Source Feature Development</div></div>
+<div class="block"><div class="label">Body</div><div class="text">While experimenting with Zanzibar approaches to authorization, Netflix found SpiceDB and used it to build a prototype for experimentation. The prototype uncovered trade-offs required to implement Attribute-Based Access Control (ABAC) in SpiceDB, which made it poorly suited for Netflix’s core requirements for application identities.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">With Netflix’s support, the AuthZed team pondered a Zanzibar-native approach to Attribute-Based Access Control. The requirements were captured and published as the caveated relationships proposal on GitHub for feedback from the SpiceDB community.</div></div>
+<div class="block"><div class="label">Why-list</div><ul class="bullets"><li>Netflix Engineering is always looking for security, ergonomic, and efficiency improvements</li><li>The authorization team at Netflix sponsored work to add ABAC support to SpiceDB</li><li>Netflix wasn’t the only one facing challenges when reconciling SpiceDB with policy-based approaches</li><li>Netflix was able to help AuthZed prioritize engineering effort and accelerate adding the Caveats feature to SpiceDB</li></ul></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">SpiceDB Caveats</div></div>
+<div class="block"><div class="label">Body</div><div class="text">SpiceDB Caveats allows Netflix to specify authorization policy to include system attributes. Instead of requiring the entire state of the authorization world to be persisted as relations, a system can have both relations and identity attributes used at authorization check time.</div></div>
+<div class="block"><div class="label">Pull quote</div><blockquote>“Bridging the gap between policy-based authorization and ReBAC is a powerful paradigm that is already benefiting companies looking to Zanzibar-based implementations for modernizing their authorization stack.”</blockquote><div class="attr">— AuthZed + Netflix</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Outcome — rich authorization checks</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Netflix and AuthZed are both excited about the collaboration’s outcome. Netflix can employ another authorization tool and SpiceDB users have another option to perform rich authorization checks.</div></div>
+<div class="block"><div class="label">Stats / Results</div><ul class="stats"><li><strong>Sponsored</strong> — design and development</li><li><strong>First-ever</strong> — ABAC model in an open source Zanzibar-inspired permissions system</li><li><strong>SpiceDB Caveats</strong> — caveated relationships proposal on GitHub</li><li><strong>Open source</strong> — SpiceDB users have another option to perform rich authorization checks</li></ul></div></div></div></section>
+<section class="customer" id="workday"><h2>Workday <small>authzed.com/customers/workday</small></h2><div class="columns"><div class="col live"><h3>LIVE</h3><div class="block"><div class="label">Title (H1)</div><div class="text title-text">Workday secures end-to-end collaborative workflows with AuthZed Dedicated</div></div>
+<div class="block"><div class="label">Subtitle / Lede</div><div class="text subtitle-text">Workday delivers a complete, AI-native platform for end-to-end contract lifecycle management, including the first large language model built specifically for contracts. The Workday team selected AuthZed Dedicated to deliver a secure, scalable, and reliable authorization service that centralizes and unifies access control across all contract lifecycle stages, from pre-signature workflows to post-signature document management.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">About Workday</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">A Complex Challenge: Managing Permissions Across the Contract Lifecycle</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Building a scalable permissions system for millions of documents and supporting a wide range of user personas presented a challenge for Workday. Initially, the team developed two separate permissions systems with two different authorization models: role-based access control (RBAC) for pre-signature workflows and access control lists (ACLs) for post-signature document storage.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">These independent systems made updating permissions cumbersome and error-prone, requiring coordination across teams to modify multiple areas of the codebase, resulting in extended engineering timelines and blocked feature development. Additionally, the hardcoded authorization logic became increasingly verbose and complex to audit as the product grew.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Derek Li, Founding Engineer at Workday, explained, &quot;The hardcoded permissions made it difficult to understand access levels across the system. It was challenging to determine who had access to what, especially with definitions scattered throughout the codebase.&quot;</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Workday needed a flexible, scalable, and centralized authorization solution. Building such a system in-house would have diverted resources from their core product, so they began researching other approaches.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Reflecting on these challenges, Derek shared:</div></div>
+<div class="block"><div class="label">Quote</div><blockquote>&quot;Once we identified the problem, we realized building authorization ourselves wasn't practical. We were hitting system limits, and it was becoming increasingly difficult to manage. We needed to focus on our legal products, not authorization. That's when we decided to look for existing solutions.&quot;</blockquote></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Single Solution: SpiceDB</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Workday found Google's publication about its internal authorization service, Zanzibar, to be an ideal template for building a scalable and consistent authorization service. After evaluating various open source Zanzibar implementations, they identified SpiceDB as the most mature option, thanks to its flexible and intuitive schema design, strong consistency guarantees, and efficient caching mechanisms that ensured both scalability and reliable authorization decisions.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">With SpiceDB's declarative schema language, Workday could define subjects, resources, relationships, and permissions for both RBAC and ACL models in a centralized, human-readable format. By making permissions definitions easy to review and modify, engineers could envision a clear path to implement complex collaborative features.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Given the sensitive nature of legal documents, ensuring secure access control and protecting data privacy is Workday’s top priority. Adopting SpiceDB meant Workday didn't need to compromise on their requirements for strongly consistent authorization decisions or highly performant queries. SpiceDB's graph-based ReBAC authorization engine efficiently computes complex queries, while maintaining consistency guarantees by utilizing a cadre of sophisticated caching strategies and tunable consistency features, such as zed tokens.</div></div>
+<div class="block"><div class="label">Quote</div><blockquote>“SpiceDB came up early in our search,” Derek shared. “There were a few things that were really compelling. I loved having the playground to test things out; it was fun to work with. We also really liked the way you define your schema with SpiceDB. We looked at other options, but their schema designs didn’t work the same way. None of them were actually competing in this space, in my opinion.”</blockquote></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">AuthZed Dedicated: Secure Authorization at Scale</div></div>
+<div class="block"><div class="label">Body</div><div class="text">To speed up development and reduce operational overhead, Workday chose to purchase AuthZed Dedicated: a private, fully isolated SaaS service that delivers SpiceDB at scale, alleviating the burden of internally managing complex distributed permissions systems.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">As Derek put it, “It was a cost-benefit analysis. At the time, we were a startup with a small staff and deadlines to hit, and we wanted to move quickly. It just made sense to use AuthZed Dedicated. We were also impressed with AuthZed’s disaster recovery plans and security stance. We spend a lot of time thinking about those things because we’re in the legal space, and for every question we asked, AuthZed had an answer. They already had solutions and procedures in place, so we were comfortable with AuthZed hosting SpiceDB.”</div></div>
+<div class="block"><div class="label">Body</div><div class="text">The AuthZed customer success team worked closely with Derek’s team to ensure that their SpiceDB implementation process went as smoothly as possible. After successfully building a proof of concept that managed millions of relationships, Workday began migrating other existing services.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">“The implementation itself was rather straightforward,” Derek noted. “The initial planning took about one or two months due to the legacy code we had to address. We structured things so that new clients could adopt the SpiceDB solution right away, allowing us to give some clients access within three months. We went into full production within five months.”</div></div>
+<div class="block"><div class="label">Body</div><div class="text">With AuthZed Dedicated, Workday developers no longer needed to build or maintain authorization services themselves.</div></div>
+<div class="block"><div class="label">Quote</div><blockquote>“It was easy to convince engineers to adopt the service because they didn’t want to be responsible for writing sensitive authz code,” Derek said.</blockquote></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Extending AuthZed to more services</div></div>
+<div class="block"><div class="label">Body</div><div class="text">With AuthZed Dedicated running in production, Workday now relies on a scalable, secure, and reliable authorization service that combines the flexibility of SpiceDB with the operational efficiency of a private SaaS solution.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">The new centralized permissions system streamlines the process of shipping new features. Engineers can simply update the SpiceDB schema and add relationships instead of dealing with scattered legacy code. “We’re working on the permissions now, and it’s getting complicated,” Derek said. “In the old system, doing this would have been impossible- it’s crazy to think about the complexity. With AuthZed, it’s easy to define the schema and rules.”</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Having successfully implemented SpiceDB as replacement for the RBAC-based model for pre-signature workflows, Workday now plans to migrate internal tools and the legacy ACL-based document management system to the new SpiceDB permissions system.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Workday's journey demonstrates how a centralized, flexible, and scalable permissions system can empower development teams to quickly deliver features that enable secure collaboration on sensitive documents for end users.</div></div></div><div class="col ours"><h3>OURS</h3><div class="block"><div class="label">Title</div><div class="text title-text">Workday secures end-to-end collaborative workflows with AuthZed Dedicated</div></div>
+<div class="block"><div class="label">Subtitle</div><div class="text subtitle-text">Workday delivers a complete, AI-native platform for end-to-end contract lifecycle management, including the first large language model built specifically for contracts.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">A complex challenge: managing permissions across the contract lifecycle</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Initially, the team developed two separate permissions systems with two different authorization models: role-based access control (RBAC) for pre-signature workflows and access control lists (ACLs) for post-signature document storage.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">These independent systems made updating permissions cumbersome and error-prone, requiring coordination across teams to modify multiple areas of the codebase, resulting in extended engineering timelines and blocked feature development. Additionally, the hardcoded authorization logic became increasingly verbose and complex to audit as the product grew.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Single solution: SpiceDB</div></div>
+<div class="block"><div class="label">Body</div><div class="text">After evaluating various open source Zanzibar implementations, Workday identified SpiceDB as the most mature option, thanks to its flexible and intuitive schema design, strong consistency guarantees, and efficient caching mechanisms that ensured both scalability and reliable authorization decisions.</div></div>
+<div class="block"><div class="label">Why-list</div><ul class="bullets"><li>Define subjects, resources, relationships, and permissions for both RBAC and ACL models in a centralized, human-readable format</li><li>Tunable consistency features, such as zed tokens</li><li>Graph-based ReBAC authorization engine efficiently computes complex queries</li><li>Sophisticated caching strategies maintain consistency guarantees</li></ul></div>
+<div class="block"><div class="label">Pull quote</div><blockquote>“We needed to focus on our legal products, not authorization. That’s when we decided to look for existing solutions.”</blockquote><div class="attr">— Derek Li · Founding Engineer, Workday</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">AuthZed Dedicated: secure authorization at scale</div></div>
+<div class="block"><div class="label">Body</div><div class="text">To speed up development and reduce operational overhead, Workday chose to purchase AuthZed Dedicated: a private, fully isolated SaaS service that delivers SpiceDB at scale, alleviating the burden of internally managing complex distributed permissions systems. After successfully building a proof of concept that managed millions of relationships, Workday began migrating other existing services.</div></div>
+<div class="block"><div class="label">Stats / Results</div><ul class="stats"><li><strong>5 months</strong> — Full production</li><li><strong>3 months</strong> — Client access</li><li><strong>Millions of relationships</strong> — Proof of concept</li><li><strong>1–2 months</strong> — Initial planning</li></ul></div></div></div></section>
+<section class="customer" id="openai"><h2>OpenAI <small>authzed.com/customers/openai</small></h2><div class="columns"><div class="col live"><h3>LIVE</h3><div class="block"><div class="label">Title (H1)</div><div class="text title-text">OpenAI securely connects enterprise knowledge with ChatGPT by using AuthZed</div></div>
+<div class="block"><div class="label">Subtitle / Lede</div><div class="text subtitle-text">Learn how OpenAI built apps in ChatGPT to process and search billions of documents for over 5 million business users while respecting existing data permissions using AuthZed’s authorization infrastructure.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Table of contents</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Have questions or want a demo?</div></div>
+<div class="block"><div class="label">Body</div><div class="text">We're here to help!</div></div>
+<div class="block"><div class="label">Body</div><div class="text">With nearly 700 million weekly active users, OpenAI has transformed how people interact with AI. But serving enterprise customers comes with more stringent expectations: Apps in ChatGPT that can access internal company knowledge while respecting existing permissions.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Apps in ChatGPT integrate internal knowledge sources and third-party applications like Google Drive, Microsoft OneDrive, and Box directly into ChatGPT. The challenge? Ensuring that when employees ask questions, they only see documents they’re authorized to access, even as permissions change in real-time across countless documents.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">The challenge — scaling enterprise permissions for AI-powered knowledge discovery</div></div>
+<div class="block"><div class="label">Body</div><div class="text">OpenAI needed to solve a problem that’s especially critical for business users: incorporate vital but sensitive company data with ChatGPT while preventing oversharing of that information. Additionally, they needed to support connections for a wide range of applications, accommodate the usage scale of a rapidly growing business user base, and launch quickly to meet the demand for ChatGPT workplace productivity tools.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">The apps team identified three critical technical requirements for an authorization system to meet the challenge:</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Traditional authorization systems couldn’t handle the permission complexity or request volume scale across platforms – each has different access control models, and permissions change constantly as employees join projects, leave teams, or update document access.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Initially, the team considered building a custom authorization system. However, given their product launch timeline, they quickly pivoted to a buy-versus-build approach.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Member of Technical Staff, OpenAI</div></div>
+<div class="block"><div class="label">Quote</div><blockquote>We decided to buy instead of build early on. This is an authorization system with established patterns. We didn’t want to reinvent the wheel when we could move fast with a proven solution.</blockquote></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">The solution — AuthZed Dedicated for enterprise-grade authorization infrastructure</div></div>
+<div class="block"><div class="label">Body</div><div class="text">OpenAI prioritized proven authorization technology built for modern scale requirements and evaluated authorization solutions against their critical requirements for apps in ChatGPT. They chose AuthZed Dedicated, which is designed for scalably storing and querying fine-grained authorization data.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Through their evaluation process, they discovered that AuthZed Dedicated:</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Flexible Permission Modeling</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Supports modeling third-party application’s permission models using a schema language without requiring authorization code changes for each new app.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Massive Write Performance</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Handles massive write volumes from document ingestion and permission updates from all connected data sources while maintaining responsive read performance.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Billion-Document Scale</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Scales performance to billions of documents each with unique fine-grained permissions.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">AuthZed Dedicated emerged as the right choice, offering both the flexibility to model any third-party permission system and the infrastructure performance required for the scale of OpenAI.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Member of Technical Staff, OpenAI</div></div>
+<div class="block"><div class="label">Quote</div><blockquote>Our product needs to replicate authorization from any possible third parties we want to connect to. Some are fairly complicated, like Google Drive. Others are simpler. But we need something flexible enough to expand to more third-party connections without re-architecting.</blockquote></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">The results — successful apps in ChatGPT launch</div></div>
+<div class="block"><div class="label">Body</div><div class="text">OpenAI met their ambitious timeline and successfully launched apps in ChatGPT to their 5 million business users with AuthZed handling authorization. Since launch, the system has processed over 37 billion documents while maintaining permission accuracy—all running on AuthZed’s authorization infrastructure.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Member of Technical Staff, OpenAI</div></div>
+<div class="block"><div class="label">Body</div><div class="text">The decision to use AuthZed Dedicated has allowed the apps team to delegate the operational overhead for their authorization system and utilize AuthZed’s support team for technical guidance, unblocking and freeing their engineering resources to focus on improving existing and building new app integrations.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Member of Technical Staff, OpenAI</div></div>
+<div class="block"><div class="label">Quote</div><blockquote>We’re ingesting billions of documents from our customers, and every single document needs its own very fine-grained permission. The volume of data we are materializing is very, very high.</blockquote></div>
+<div class="block"><div class="label">Quote</div><blockquote>Especially the SRE work [that product teams] have to do—it’s usually pretty large during the launch phase. But with [AuthZed Dedicated], it’s almost all gone.</blockquote></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">With AuthZed, OpenAI is achieving:</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Authorization system that evolves with new platform integrations and business requirements</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Billions of documents ingested with fine-grained access controls maintained in real-time</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Authorization systems that perform consistently and reliability under demanding conditions</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Significant reduction in SRE workload after adopting AuthZed Dedicated</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Faster onboarding of new third-party applications without custom authorization development</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Ready for scalable AI permissions?</div></div></div><div class="col ours"><h3>OURS</h3><div class="block"><div class="label">Title</div><div class="text title-text">OpenAI securely connects enterprise knowledge with ChatGPT by using AuthZed</div></div>
+<div class="block"><div class="label">Subtitle</div><div class="text subtitle-text">Learn how OpenAI built apps in ChatGPT to process and search billions of documents for over 5 million business users while respecting existing data permissions using AuthZed’s authorization infrastructure.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">The challenge — scaling enterprise permissions for AI‑powered knowledge discovery</div></div>
+<div class="block"><div class="label">Body</div><div class="text">With nearly 700 million weekly active users, OpenAI has transformed how people interact with AI. But serving enterprise customers comes with more stringent expectations: Apps in ChatGPT that can access internal company knowledge while respecting existing permissions.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">The apps team identified three critical technical requirements for an authorization system to meet the challenge:</div></div>
+<div class="block"><div class="label">Why-list</div><ul class="bullets"><li>Replicate complex permission models from third-party platforms</li><li>Handle massive write volumes from continuous document ingestion</li><li>Scale to billions of documents each with their own unique permissions without performance degradation</li></ul></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">The solution — AuthZed Dedicated for enterprise‑grade authorization infrastructure</div></div>
+<div class="block"><div class="label">Body</div><div class="text">OpenAI prioritized proven authorization technology built for modern scale requirements and evaluated authorization solutions against their critical requirements for apps in ChatGPT. They chose AuthZed Dedicated, which is designed for scalably storing and querying fine-grained authorization data.</div></div>
+<div class="block"><div class="label">Pull quote</div><blockquote>“We decided to buy instead of build early on. This is an authorization system with established patterns. We didn’t want to reinvent the wheel when we could move fast with a proven solution.”</blockquote><div class="attr">— Member of Technical Staff · OpenAI</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">The results — successful apps in ChatGPT launch</div></div>
+<div class="block"><div class="label">Body</div><div class="text">OpenAI met their ambitious timeline and successfully launched apps in ChatGPT to their 5 million business users with AuthZed handling authorization. Since launch, the system has processed over 37 billion documents while maintaining permission accuracy—all running on AuthZed’s authorization infrastructure.</div></div>
+<div class="block"><div class="label">Stats / Results</div><ul class="stats"><li><strong>37 Billion+ Documents</strong> — with fine-grained access controls</li><li><strong>5 million business users</strong> — live in apps in ChatGPT</li><li><strong>nearly 700M weekly</strong> — active users on ChatGPT</li><li><strong>SRE work “almost all gone”</strong> — with AuthZed Dedicated</li></ul></div></div></div></section>
+<section class="customer" id="redpanda"><h2>Redpanda <small>(source: page.tsx — live 404)</small></h2><div class="columns"><div class="col live"><h3>LIVE</h3><div class="block"><div class="label">Title (H1)</div><div class="text title-text">How Redpanda built one authorization system for humans and machines</div></div>
+<div class="block"><div class="label">Subtitle / Lede</div><div class="text subtitle-text">Trusted by Redpanda, AuthZed enables secure, scalable authorization so engineering teams can focus on their core products.</div></div>
+<div class="block"><div class="label">Quote</div><blockquote>{children}</blockquote></div>
+<div class="block"><div class="label">Body</div><div class="text">Redpanda replaced fragmented role management with a single, identity-agnostic authorization layer, giving enterprise customers and growing teams alike fine-grained control over every resource they manage.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Redpanda is one of the fastest-growing streaming data platforms on the market. Kafka-compatible, trusted by enterprises across financial services, gaming, and telecommunications, and valued at $1B. As the company’s cloud offering scaled, it needed a control-plane authorization system that could handle two very different customer segments: large enterprises demanding strict access controls, and smaller teams that just need to push data and go.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">AuthZed gave Redpanda a single authorization layer for its cloud, where one identity, human or service account, works consistently across the entire platform. Customers can now create, manage, and control access to their streaming infrastructure with fine-grained precision without needing a dedicated security engineering team.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">The challenge — outgrowing membership-level roles in a multi-cloud world</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Redpanda’s cloud platform allows organizations to spin up streaming data endpoints, manage networks, configure namespaces, and control team access through a self-service experience. As the platform scaled, the control-plane authorization system couldn’t keep up.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">For enterprise customers protecting sensitive data workloads, membership-level roles were a non-starter. And the existing authentication provider couldn’t bridge the gap.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">The solution — AuthZed for cloud authorization, alongside Redpanda’s data-plane controls</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Redpanda’s platform has two distinct authorization surfaces. On the data hot path, producers and consumers move messages at microsecond latency. Redpanda itself is the authorization authority there, enforcing Kafka-style ACLs inside the storage engine. The cloud control plane governs who can create a cluster, spin up a serverless endpoint, manage a namespace, or invite a user to an organization. That’s where Redpanda needed a purpose-built authorization system, and it’s where AuthZed fits in.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">When Redpanda evaluated authorization solutions, the team knew what mattered: a solid academic foundation, compatibility with their existing stack, open source licensing, and enough flexibility to handle both human users and automated services without treating them differently.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Redpanda is a gRPC-first company that uses Go for its cloud infrastructure. AuthZed speaks the same language, which meant the integration felt natural rather than forced. And when it came to the decision, the team didn’t need much convincing.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Before writing any integration code, Redpanda used the AuthZed Playground to model and simulate their permission system, validating the approach before committing engineering resources.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Through their evaluation, Redpanda found that AuthZed delivered:</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Identity-Agnostic Authorization</div></div>
+<div class="block"><div class="label">Body</div><div class="text">A unified identity model that treats human accounts and service accounts identically, with no separate authorization paths for people vs. machines.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Zanzibar-Based Permission Model</div></div>
+<div class="block"><div class="label">Body</div><div class="text">An academically rigorous, proven approach to fine-grained authorization built on the same research that powers Google’s internal systems.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Open Source Independence</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Full architectural control over control-plane authorization, giving Redpanda the freedom to deploy and extend authorization on their own terms.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">Developer-First Tooling</div></div>
+<div class="block"><div class="label">Body</div><div class="text">The Playground enabled the team to prototype their complete permission model before writing implementation code, significantly reducing integration risk.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">The results — fine-grained control across the platform</div></div>
+<div class="block"><div class="label">Body</div><div class="text">With AuthZed in production, Redpanda has transformed how organizations interact with its streaming data platform. Control-plane authorization now covers the full lifecycle of every resource, with controls that scale from individual developers to enterprise teams.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">AuthZed powers access control for every resource in Redpanda’s cloud: serverless endpoints, networks, organizations, namespaces, and groups. For each resource type, authorization governs who can create, view, use, and delete it.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Redpanda’s cloud authorization layer makes no distinction between a human operator logging in through an identity provider and a service account making API calls. Both are the same kind of identity, which simplifies the permission model and reduces the surface area for misconfiguration.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Enterprise customers get strict, granular access controls. Smaller teams get sensible defaults that protect their resources without requiring authorization expertise. One control-plane system handles both. And the team continues to deepen its AuthZed integration, extending fine-grained authorization into additional layers of the platform.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">What Redpanda has achieved with AuthZed:</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Human operators and service accounts authorized through a single system</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Every lifecycle action on every cloud resource governed by granular permissions</div></div>
+<div class="block"><div class="label">Body</div><div class="text">No vendor lock-in, with full architectural control over control-plane authorization</div></div>
+<div class="block"><div class="label">Body</div><div class="text">One system serving sophisticated enterprise requirements and simpler self-service use cases</div></div></div><div class="col ours"><h3>OURS</h3><div class="block"><div class="label">Title</div><div class="text title-text">How Redpanda built one authorization system for humans and machines</div></div>
+<div class="block"><div class="label">Subtitle</div><div class="text subtitle-text">Redpanda replaced fragmented role management with a single, identity‑agnostic authorization layer, giving enterprise customers and growing teams alike fine‑grained control over every resource they manage.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">The challenge — outgrowing membership‑level roles in a multi‑cloud world</div></div>
+<div class="block"><div class="label">Body</div><div class="text">Redpanda is one of the fastest-growing streaming data platforms on the market. Kafka-compatible, trusted by enterprises across financial services, gaming, and telecommunications, and valued at $1B. As the company’s cloud offering scaled, it needed a control-plane authorization system that could handle two very different customer segments: large enterprises demanding strict access controls, and smaller teams that just need to push data and go.</div></div>
+<div class="block"><div class="label">Body</div><div class="text">The previous system only supported roles at the membership level with no way to control who could create, modify, or delete specific resources within an organization. The existing authentication provider didn’t offer the authorization capabilities needed, and extending that dependency wasn’t an option.</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">The solution — AuthZed for cloud authorization</div></div>
+<div class="block"><div class="label">Body</div><div class="text">AuthZed gave Redpanda a single authorization layer for its cloud, where one identity, human or service account, works consistently across the entire platform. Before writing any integration code, Redpanda used the AuthZed Playground to model and simulate their permission system, validating the approach before committing engineering resources.</div></div>
+<div class="block"><div class="label">Why-list</div><ul class="bullets"><li>Zanzibar-Based Permission Model — an academically rigorous, proven approach to fine-grained authorization</li><li>Identity-Agnostic Authorization — human accounts and service accounts treated identically</li><li>Open Source Independence — full architectural control over control-plane authorization</li><li>gRPC-first, Go for the cloud part — the stack made sense, a no-brainer</li><li>SpiceDB controls the access to the lifecycle of the resource</li></ul></div>
+<div class="block"><div class="label">Pull quote</div><blockquote>“We don’t differentiate. We have an identity that can be used for machines or for humans, human accounts or service accounts, and we use the same identity.”</blockquote><div class="attr">— Santiago Jimenez Giraldo · Infrastructure Software Engineer, Redpanda</div></div>
+<div class="block"><div class="label">Section heading</div><div class="text h2-text">The results — fine‑grained control across the platform</div></div>
+<div class="block"><div class="label">Body</div><div class="text">AuthZed powers access control for every resource in Redpanda’s cloud: serverless endpoints, networks, organizations, namespaces, and groups. For each resource type, authorization governs who can create, view, use, and delete it. Enterprise customers get strict, granular access controls. Smaller teams get sensible defaults that protect their resources without requiring authorization expertise.</div></div>
+<div class="block"><div class="label">Stats / Results</div><ul class="stats"><li><strong>100% adoption</strong> — Cloud customers, fine-grained controls</li><li><strong>Unified identity</strong> — Humans + service accounts</li><li><strong>Resource-level</strong> — Every lifecycle action governed</li><li><strong>Enterprise + SME</strong> — One system, all use cases</li></ul></div></div></div></section>
+<div id="pair-tooltip" role="tooltip" aria-hidden="true"></div>
+<script>
+(function () {
+  const STOP = new Set(['the','a','an','and','or','but','of','to','in','on','for','with','at','by','from','as','is','are','was','were','be','been','being','have','has','had','do','does','did','will','would','could','should','may','might','must','shall','can','this','that','these','those','it','its','their','they','them','our','we','us','i','you','your','he','she','his','her','what','which','who','whom','whose','when','where','why','how','than','then','so','if','about','into','over','under','more','most','some','any','all','no','not','only','own','same','such','too','very']);
+  function tokens(text) {
+    return (text || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length >= 3 && !STOP.has(w));
+  }
+  function blockText(block) {
+    const clone = block.cloneNode(true);
+    clone.querySelectorAll('.label').forEach(el => el.remove());
+    return clone.textContent || '';
+  }
+
+  // ── Word-level diff helpers ───────────────────────────────────────
+  // Normalize a single token for comparison (case + punctuation strip).
+  function normWord(w) {
+    return (w || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+  // Decide whether a token is "content" worth diffing (skip pure punctuation/whitespace).
+  function isContentWord(w) {
+    return /[a-z0-9]/i.test(w);
+  }
+  // Split a string into tokens that preserve whitespace + punctuation as
+  // separate entries (so we can re-emit identical output minus added wrappers).
+  function splitWithSpaces(text) {
+    // Match runs of word chars (incl. unicode letters/digits) OR runs of non-word.
+    return text.match(/[\p{L}\p{N}’']+|[^\p{L}\p{N}’']+/gu) || [];
+  }
+  // Compute the longest-common-subsequence MASK over two arrays of
+  // normalized words. Returns a Uint8Array `mask` aligned with `aNorm`
+  // where mask[i] === 1 means the i-th word in A is matched in B.
+  // Greedy two-pointer with multi-set fallback: good enough for our blocks.
+  function lcsMask(aNorm, bNorm) {
+    const m = aNorm.length, n = bNorm.length;
+    if (!m || !n) return { aMatched: new Uint8Array(m), bMatched: new Uint8Array(n) };
+    // True LCS dp — sizes here (per-block) are small (< ~250) so this is fine.
+    // Use 1D rolling row to keep memory down.
+    let prev = new Uint16Array(n + 1);
+    let curr = new Uint16Array(n + 1);
+    // Build full dp table for traceback (still small).
+    const dp = new Array(m + 1);
+    for (let i = 0; i <= m; i++) dp[i] = new Uint16Array(n + 1);
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        if (aNorm[i - 1] === bNorm[j - 1]) {
+          dp[i][j] = dp[i - 1][j - 1] + 1;
+        } else {
+          dp[i][j] = dp[i - 1][j] >= dp[i][j - 1] ? dp[i - 1][j] : dp[i][j - 1];
+        }
+      }
+    }
+    // Traceback to mark matched positions.
+    const aMatched = new Uint8Array(m);
+    const bMatched = new Uint8Array(n);
+    let i = m, j = n;
+    while (i > 0 && j > 0) {
+      if (aNorm[i - 1] === bNorm[j - 1]) {
+        aMatched[i - 1] = 1;
+        bMatched[j - 1] = 1;
+        i--; j--;
+      } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+        i--;
+      } else {
+        j--;
+      }
+    }
+    return { aMatched, bMatched };
+  }
+  // Collect text nodes whose ancestor inside `root` is NOT inside `.label`
+  // (so the label header stays untouched). Returns array of Text nodes in
+  // document order.
+  function collectTextNodes(root) {
+    const out = [];
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        // Skip empty / whitespace-only.
+        if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+        // Skip if inside a `.label` descendant.
+        let p = node.parentNode;
+        while (p && p !== root) {
+          if (p.classList && (p.classList.contains('label') || p.classList.contains('attr') || p.classList.contains('dropped-words') || p.classList.contains('edit-badge'))) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          p = p.parentNode;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    let n;
+    while ((n = walker.nextNode())) out.push(n);
+    return out;
+  }
+  // Apply word-level diff: wraps unmatched OURS words with `.word-added`.
+  // Returns the classification + stats. `liveBlock` may be null (novel).
+  function applyWordDiff(oursBlock, liveBlock) {
+    const oursTextNodes = collectTextNodes(oursBlock);
+    if (!oursTextNodes.length) return null;
+
+    // Gather flattened OURS word sequence (with reverse mapping back to
+    // (textNode, tokenIndexWithinSplit) so we can re-render each text node).
+    const perNode = oursTextNodes.map(tn => {
+      const parts = splitWithSpaces(tn.nodeValue);
+      const indices = []; // index into the flat words array for each content part
+      return { tn, parts, indices };
+    });
+    const oursWords = [];          // original strings, content only
+    const oursWordsNorm = [];      // normalized for matching
+    perNode.forEach(entry => {
+      entry.parts.forEach((p, idx) => {
+        if (isContentWord(p)) {
+          const norm = normWord(p);
+          if (norm) {
+            entry.indices.push({ partIdx: idx, wordIdx: oursWords.length });
+            oursWords.push(p);
+            oursWordsNorm.push(norm);
+          } else {
+            entry.indices.push({ partIdx: idx, wordIdx: -1 });
+          }
+        }
+      });
+    });
+
+    // Build LIVE word sequence (content only, normalized).
+    const liveWords = [];
+    const liveWordsNorm = [];
+    if (liveBlock) {
+      const liveTextNodes = collectTextNodes(liveBlock);
+      liveTextNodes.forEach(tn => {
+        const parts = splitWithSpaces(tn.nodeValue);
+        parts.forEach(p => {
+          if (isContentWord(p)) {
+            const norm = normWord(p);
+            if (norm) { liveWords.push(p); liveWordsNorm.push(norm); }
+          }
+        });
+      });
+    }
+
+    let aMatched = new Uint8Array(oursWordsNorm.length);
+    let bMatched = new Uint8Array(liveWordsNorm.length);
+    if (liveWordsNorm.length && oursWordsNorm.length) {
+      const r = lcsMask(oursWordsNorm, liveWordsNorm);
+      aMatched = r.aMatched;
+      bMatched = r.bMatched;
+    }
+
+    // Longest contiguous run of OURS that appears as a contiguous span in LIVE.
+    // Used to separate VERBATIM (≥95% of OURS is a contiguous slice of LIVE)
+    // from TRIMMED (subset of LIVE in order but with gaps).
+    let longestContig = 0;
+    if (oursWordsNorm.length && liveWordsNorm.length) {
+      const m = oursWordsNorm.length, n = liveWordsNorm.length;
+      // O(m*n) suffix-table; m,n are tiny per-block so this is fine.
+      let prev = new Uint16Array(n + 1);
+      let curr = new Uint16Array(n + 1);
+      for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+          if (oursWordsNorm[i - 1] === liveWordsNorm[j - 1]) {
+            curr[j] = prev[j - 1] + 1;
+            if (curr[j] > longestContig) longestContig = curr[j];
+          } else {
+            curr[j] = 0;
+          }
+        }
+        const tmp = prev; prev = curr; curr = tmp;
+        for (let k = 0; k <= n; k++) curr[k] = 0;
+      }
+    }
+    const contigRatio = oursWordsNorm.length ? longestContig / oursWordsNorm.length : 0;
+
+    // Re-render each OURS text node with <span class="word-added"> wrapping
+    // unmatched content words.
+    perNode.forEach(entry => {
+      const { tn, parts } = entry;
+      const frag = document.createDocumentFragment();
+      let cursor = 0; // index into entry.indices
+      parts.forEach((p, idx) => {
+        if (isContentWord(p)) {
+          const meta = entry.indices[cursor++];
+          if (meta && meta.wordIdx >= 0 && aMatched[meta.wordIdx] === 0) {
+            const span = document.createElement('span');
+            span.className = 'word-added';
+            span.textContent = p;
+            frag.appendChild(span);
+          } else {
+            frag.appendChild(document.createTextNode(p));
+          }
+        } else {
+          // Whitespace / punctuation — pass through verbatim.
+          frag.appendChild(document.createTextNode(p));
+        }
+      });
+      tn.parentNode.replaceChild(frag, tn);
+    });
+
+    // Classify edit type using content-word counts.
+    const oursCount = oursWordsNorm.length;
+    const liveCount = liveWordsNorm.length;
+    let matched = 0;
+    for (let i = 0; i < aMatched.length; i++) if (aMatched[i]) matched++;
+    const addedCount = oursCount - matched;          // new words in OURS
+    const droppedCount = liveCount - matched;        // dropped from LIVE
+    const verbatimRatio = oursCount ? matched / oursCount : 0;
+
+    // Classify:
+    //   VERBATIM — OURS is a contiguous (or near-contiguous) slice of LIVE.
+    //     ≥95% of OURS words appear in one contiguous run in LIVE.
+    //   TRIMMED  — OURS is an ordered subset of LIVE with gaps. No new
+    //     words; ≥75% LCS-matched but contiguity ratio falls below 0.95.
+    //   EDITED   — anything with added/changed words, or low overlap.
+    let editType = null;
+    if (oursCount === 0) {
+      editType = null;
+    } else if (addedCount === 0 && contigRatio >= 0.95) {
+      editType = 'verbatim';
+    } else if (addedCount === 0 && verbatimRatio >= 0.75) {
+      editType = 'trimmed';
+    } else if (verbatimRatio >= 0.95 && addedCount <= 1) {
+      // Tolerance: tiny typographic edits (curly quotes, dashes) that
+      // normalize to the same word but happen to drop a syllable can still
+      // be treated as verbatim.
+      editType = 'verbatim';
+    } else {
+      editType = 'edited';
+    }
+
+    // Gather dropped LIVE words (content only, deduped, max 12 surfaced).
+    const dropped = [];
+    if (liveBlock) {
+      const seen = new Set();
+      for (let i = 0; i < bMatched.length; i++) {
+        if (!bMatched[i]) {
+          const w = liveWords[i];
+          const key = normWord(w);
+          if (key && !STOP.has(key) && key.length >= 3 && !seen.has(key)) {
+            seen.add(key);
+            dropped.push(w);
+          }
+        }
+      }
+    }
+
+    return { editType, oursCount, liveCount, matched, addedCount, droppedCount, dropped, verbatimRatio };
+  }
+  function renderEditBadge(oursBlock, editType) {
+    if (!editType) return;
+    const badge = document.createElement('span');
+    badge.className = 'edit-badge ' + editType;
+    const label = editType === 'verbatim' ? '✓ Verbatim'
+                 : editType === 'trimmed'  ? '◐ Trimmed'
+                 : '✎ Edited';
+    badge.textContent = label;
+    // Insert right after the .label header (so it sits above the body text).
+    const labelEl = oursBlock.querySelector(':scope > .label');
+    if (labelEl) {
+      labelEl.insertAdjacentElement('afterend', badge);
+    } else {
+      oursBlock.prepend(badge);
+    }
+  }
+  function renderDropped(oursBlock, droppedList) {
+    if (!droppedList || !droppedList.length) return;
+    const trimmed = droppedList.slice(0, 12);
+    const more = droppedList.length - trimmed.length;
+    const div = document.createElement('div');
+    div.className = 'dropped-words';
+    const lbl = document.createElement('span');
+    lbl.className = 'dropped-label';
+    lbl.textContent = 'Dropped from source:';
+    div.appendChild(lbl);
+    div.appendChild(document.createTextNode(trimmed.join(', ') + (more > 0 ? ', +' + more + ' more' : '')));
+    oursBlock.appendChild(div);
+  }
+  function jaccard(a, b) {
+    if (!a.size || !b.size) return 0;
+    let inter = 0;
+    a.forEach(t => { if (b.has(t)) inter++; });
+    return inter / (a.size + b.size - inter);
+  }
+  function nearestHeading(liveBlocks, idx) {
+    for (let i = idx; i >= 0; i--) {
+      const labelEl = liveBlocks[i].querySelector('.label');
+      const label = labelEl ? labelEl.textContent.trim().toLowerCase() : '';
+      if (label.startsWith('section heading') || label.startsWith('title')) {
+        const txt = liveBlocks[i].querySelector('.text');
+        if (txt) return txt.textContent.trim();
+      }
+    }
+    return '(intro)';
+  }
+  function setTooltip(headingText, scoreText) {
+    while (tooltip.firstChild) tooltip.removeChild(tooltip.firstChild);
+    const label = document.createElement('span');
+    label.className = 'label';
+    label.textContent = 'Source';
+    tooltip.appendChild(label);
+    const body = document.createElement('span');
+    body.textContent = '§ ' + headingText + (scoreText ? '  ·  ' + scoreText : '');
+    tooltip.appendChild(body);
+  }
+
+  const tooltip = document.getElementById('pair-tooltip');
+  const SIM_THRESHOLD = 0.08;
+
+  // Totals reported to console for the dev-side rollup.
+  const totals = { verbatim: 0, trimmed: 0, edited: 0, novel: 0, unclassified: 0, byCustomer: {} };
+
+  document.querySelectorAll('section.customer').forEach(section => {
+    const liveBlocks = Array.from(section.querySelectorAll('.col.live .block'));
+    const oursBlocks = Array.from(section.querySelectorAll('.col.ours .block'));
+    const liveTokens = liveBlocks.map(b => new Set(tokens(blockText(b))));
+
+    const liveColorByIdx = new Map();
+    let nextColor = 0;
+    const sectionTotals = { verbatim: 0, trimmed: 0, edited: 0, novel: 0, unclassified: 0 };
+
+    oursBlocks.forEach((ours, oIdx) => {
+      const oTok = new Set(tokens(blockText(ours)));
+      let bestIdx = -1, bestScore = 0;
+      liveTokens.forEach((lTok, lIdx) => {
+        const score = jaccard(oTok, lTok);
+        if (score > bestScore) { bestScore = score; bestIdx = lIdx; }
+      });
+
+      if (bestIdx === -1 || bestScore < SIM_THRESHOLD) {
+        ours.classList.add('novel');
+        ours.dataset.score = bestScore.toFixed(2);
+        // Word-diff with no LIVE partner still runs to wrap every content
+        // word as `.word-added` (everything is new). Keeps visual signal
+        // consistent and lets users still see what's there.
+        applyWordDiff(ours, null);
+        totals.novel++; sectionTotals.novel++;
+        return;
+      }
+
+      let colorSlot;
+      if (liveColorByIdx.has(bestIdx)) {
+        colorSlot = liveColorByIdx.get(bestIdx);
+      } else {
+        colorSlot = nextColor % 12;
+        liveColorByIdx.set(bestIdx, colorSlot);
+        nextColor++;
+      }
+
+      ours.dataset.pair = colorSlot;
+      ours.dataset.pairNum = String(colorSlot + 1);
+      ours.dataset.partnerIdx = bestIdx;
+      ours.dataset.score = bestScore.toFixed(2);
+      ours.dataset.sourceHeading = nearestHeading(liveBlocks, bestIdx);
+
+      const live = liveBlocks[bestIdx];
+      if (live.dataset.pair === undefined) {
+        live.dataset.pair = colorSlot;
+        live.dataset.pairNum = String(colorSlot + 1);
+      }
+      const pairId = section.id + '-p' + oIdx;
+      ours.dataset.pairId = pairId;
+      live.dataset.pairIds = (live.dataset.pairIds || '') + ' ' + pairId;
+
+      // ── Word-level diff + edit-type badge ──────────────────────────
+      const diff = applyWordDiff(ours, live);
+      if (diff && diff.editType) {
+        ours.dataset.editType = diff.editType;
+        renderEditBadge(ours, diff.editType);
+        if (diff.dropped && diff.dropped.length) renderDropped(ours, diff.dropped);
+        totals[diff.editType]++;
+        sectionTotals[diff.editType]++;
+      } else {
+        totals.unclassified++; sectionTotals.unclassified++;
+      }
+    });
+
+    totals.byCustomer[section.id] = sectionTotals;
+  });
+
+  // Surface rollup totals via console (handy for verifying the surface).
+  try {
+    console.log('[diff-viewer] edit-type totals:', totals);
+  } catch (e) { /* noop */ }
+
+  // Track currently-slid blocks so we can revert their transforms on unfocus.
+  const slidBlocks = new Set();
+
+  function clearSlides() {
+    slidBlocks.forEach(b => {
+      b.style.transform = '';
+      b.classList.remove('is-slid');
+    });
+    slidBlocks.clear();
+  }
+
+  // Align the OURS-side block (the shorter column) to its LIVE partner by
+  // applying a CSS `transform: translateY(...)` so the two blocks sit at the
+  // same vertical position. The LIVE column stays put; the OURS block glides
+  // into place. Falls back to a smooth-scroll nudge if the aligned position
+  // would land off-screen.
+  function slidePairIntoAlignment(clickedBlock, focusedBlocks) {
+    clearSlides();
+
+    const ours = focusedBlocks.find(b => b.closest('.col.ours')) || null;
+    const live = focusedBlocks.find(b => b.closest('.col.live')) || null;
+
+    // Edge case: novel OURS block (no LIVE partner) — nothing to align to.
+    // Just nudge the clicked block into view.
+    if (!ours || !live) {
+      const target = clickedBlock;
+      const rect = target.getBoundingClientRect();
+      if (rect.top < 60 || rect.bottom > window.innerHeight - 60) {
+        const docY = rect.top + window.scrollY;
+        window.scrollTo({ top: Math.max(0, docY - window.innerHeight * 0.3), behavior: 'smooth' });
+      }
+      return;
+    }
+
+    // Translation math: we want the OURS block's top to line up with the
+    // LIVE block's top. The two blocks live in sibling CSS-grid columns, so
+    // their offsetTop values (relative to their own column) determine their
+    // *visual* vertical positions on the page — because both columns share
+    // the same containing `.columns` row baseline. Document-Y is the safest
+    // reference: take the difference between current document-Y positions.
+    const oursRect = ours.getBoundingClientRect();
+    const liveRect = live.getBoundingClientRect();
+    const oursDocY = oursRect.top + window.scrollY;
+    const liveDocY = liveRect.top + window.scrollY;
+    const offsetY = liveDocY - oursDocY;
+
+    // Apply the slide. The OURS block translates so its top lines up with
+    // the LIVE block's top — they now sit side-by-side at the same band.
+    ours.style.transform = 'translateY(' + offsetY + 'px)';
+    ours.classList.add('is-slid');
+    slidBlocks.add(ours);
+
+    // After the slide settles, check whether the aligned band is on-screen.
+    // If not, smooth-scroll the page so the user sees the pair side-by-side.
+    requestAnimationFrame(() => {
+      const livePostRect = live.getBoundingClientRect();
+      const viewportH = window.innerHeight;
+      if (livePostRect.top < 60 || livePostRect.bottom > viewportH - 60) {
+        const docY = livePostRect.top + window.scrollY;
+        const targetTop = Math.max(0, Math.round(docY - viewportH * 0.3));
+        window.scrollTo({ top: targetTop, behavior: 'smooth' });
+      }
+    });
+  }
+
+  document.querySelectorAll('.block[data-pair-id], .block[data-pair-ids]').forEach(block => {
+    block.addEventListener('click', evt => {
+      evt.stopPropagation();
+      const section = block.closest('section.customer');
+      if (!section) return;
+      const ids = (block.dataset.pairId || block.dataset.pairIds || '').trim().split(/\s+/).filter(Boolean);
+      if (!ids.length) return;
+      const wasFocused = block.classList.contains('is-focused');
+      // Always tear down any prior focus + slide state, even cross-section.
+      document.querySelectorAll('section.customer.focusing').forEach(s => {
+        s.classList.remove('focusing');
+        s.querySelectorAll('.block.is-focused').forEach(b => b.classList.remove('is-focused'));
+      });
+      clearSlides();
+      if (wasFocused) return;
+      section.classList.add('focusing');
+      const focused = [];
+      ids.forEach(id => {
+        section.querySelectorAll(
+          '[data-pair-id="' + id + '"], [data-pair-ids~="' + id + '"]'
+        ).forEach(b => {
+          b.classList.add('is-focused');
+          focused.push(b);
+        });
+      });
+      slidePairIntoAlignment(block, focused);
+    });
+  });
+
+  document.addEventListener('click', () => {
+    document.querySelectorAll('section.customer.focusing').forEach(s => {
+      s.classList.remove('focusing');
+      s.querySelectorAll('.block.is-focused').forEach(b => b.classList.remove('is-focused'));
+    });
+    clearSlides();
+  });
+
+  document.querySelectorAll('.col.ours .block[data-pair-id]').forEach(block => {
+    block.addEventListener('mouseenter', () => {
+      const heading = block.dataset.sourceHeading || '(intro)';
+      const score = block.dataset.score || '';
+      const scoreText = score ? ('overlap ' + Math.round(parseFloat(score) * 100) + '%') : '';
+      setTooltip(heading, scoreText);
+      tooltip.classList.add('show');
+      tooltip.setAttribute('aria-hidden', 'false');
+    });
+    block.addEventListener('mousemove', evt => {
+      const x = evt.clientX + 14;
+      const y = evt.clientY + 14;
+      const maxX = window.innerWidth - tooltip.offsetWidth - 8;
+      tooltip.style.left = Math.min(x, maxX) + 'px';
+      tooltip.style.top = y + 'px';
+    });
+    block.addEventListener('mouseleave', () => {
+      tooltip.classList.remove('show');
+      tooltip.setAttribute('aria-hidden', 'true');
+    });
+  });
+
+  document.querySelectorAll('.col.ours .block.novel').forEach(block => {
+    block.addEventListener('mouseenter', () => {
+      setTooltip('No LIVE block above ' + Math.round(SIM_THRESHOLD * 100) + '% overlap', '');
+      tooltip.classList.add('show');
+    });
+    block.addEventListener('mousemove', evt => {
+      tooltip.style.left = (evt.clientX + 14) + 'px';
+      tooltip.style.top = (evt.clientY + 14) + 'px';
+    });
+    block.addEventListener('mouseleave', () => tooltip.classList.remove('show'));
+  });
+})();
+</script>
+</body>
+</html>

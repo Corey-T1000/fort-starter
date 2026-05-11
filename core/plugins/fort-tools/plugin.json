@@ -1,0 +1,7 @@
+{
+  "name": "fort-tools",
+  "description": "Reusable utility skills for the Fort — verification, audit, comparison, and other general-purpose tools that aren't part of the core Fort workflow.",
+  "version": "0.1.0",
+  "author": "Corey Thomas",
+  "repository": "https://github.com/Corey-T1000/fort-starter"
+}
