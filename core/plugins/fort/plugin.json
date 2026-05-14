@@ -1,0 +1,7 @@
+{
+  "name": "fort",
+  "description": "Core Fort skills — session rituals, capture, retrieval, and structured workflows for persistent AI workspaces.",
+  "version": "0.1.0",
+  "author": "Corey Thomas",
+  "repository": "https://github.com/Corey-T1000/fort-starter"
+}
