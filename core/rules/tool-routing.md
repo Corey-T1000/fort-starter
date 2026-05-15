@@ -38,6 +38,13 @@ Before any design skill on an **existing** page, offer: "Want to explore variati
 
 When ambiguous → ask the user.
 
+## Debugging
+
+- "this is broken, figure out why" / "dig into why X isn't working" / "investigate this bug" / "the endpoint is broken" → `superpowers:systematic-debugging` (investigative, hypothesis-driven)
+- "ugh, this errored" / "why doesn't X work" (friction expression, not investigation) → friction-reflex skill if installed (e.g. `/wtf` in the private Fort) — otherwise routes to `/retro` for deep zoom, or `/note` for footgun capture
+
+`systematic-debugging` is for *finding the cause* of a known bug. Friction expressions are the *reflex* when something feels wrong — they pick the right destination downstream (which may itself be `systematic-debugging`).
+
 ## PR Review
 - "review PR #X" / "look at this PR" / PR URL → `/review-pr` (multi-pass: security + code review + verification + context check)
 - "review this" (own code) → `/requesting-code-review` (single-pass self-review)
