@@ -279,7 +279,7 @@ $ claude
   [worker-research dispatches, 90 min of back-and-forth]
   [findings land in scratch/research/vendor-api.md]
 
-> /capture
+> /note save these findings
 
   "Save findings? Routes to memory/67-vendor-apis.md (JD 67)."
   [yes]
@@ -640,12 +640,10 @@ Skills that feed signal back into memory — the layer that turns sessions into 
 
 | Skill | What it captures |
 |-------|-----------------|
-| `/capture` | Research findings → routed to right JD memory file |
-| `/note` | Quick mid-session observation → memory or scratch |
+| `/note` | Captures mid-session observations AND structured research findings → memory, BigBrain, notes, or scratch (auto-routed). Replaces the older `/capture` which folded into `/note`. |
 | `/park` | "Not now but later" → parking-lot |
 | `/distill` | Session-end extraction → JD-numbered memory (file-level signal) |
 | `/narrate` | Session-end extraction → `memory/session_*.md` (transcript-level signal: reframings, pivots, AAAK Flags) |
-| `/compound` | Feature-level `/distill` — patterns, surprises, decisions (plugin skill) |
 | `/retro` | Post-incident deep zoom — what happened, what surprised, what to change |
 | `/garden` | Periodic maintenance — stale memory, orphaned scratch, broken refs |
 
@@ -664,7 +662,7 @@ Skills that feed signal back into memory — the layer that turns sessions into 
 
 **Different modes it runs in:**
 
-- **Dispatch mode (default).** You talk, it routes. Calls `/research` / `/capture` / `/note` on your behalf and results come back into the conversation.
+- **Dispatch mode (default).** You talk, it routes. Calls `/research` / `/note` on your behalf and results come back into the conversation.
 - **Task-taker mode.** When a brain dump starts — "oh also i need to..." items — it captures to `notes/task-dump.md` with timeline buckets (Now / This Week / Later / Someday) instead of derailing focus.
 - **Multi-assistant.** Supports 2-4 parallel `/assistant` sessions — one focused, one always-on for random asks, a third while waiting on sub-agents. Each is keyed by focus slug. No cross-session bleed.
 - **Named resume.** `/assistant dashboard` re-enters the named assistant at `scratch/assistants/dashboard.md` with full prior context. Ultra-light if < 4hrs old, standard resume otherwise.
@@ -683,7 +681,7 @@ Skills that feed signal back into memory — the layer that turns sessions into 
           ├─ routes to ─► /briefing     (longer rollup, "catch me up")
           ├─ routes to ─► /switch       (context switch between projects)
           │
-          ├─ captures  ─► /note / /park / /capture (mid-thread)
+          ├─ captures  ─► /note / /park (mid-thread)
           ├─ tracks    ─► task-dump (brain dump capture)
           │
    ┌─────┘

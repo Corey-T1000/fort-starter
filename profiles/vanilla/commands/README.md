@@ -9,7 +9,7 @@ Grouped by purpose:
 | Group | Commands |
 |-------|----------|
 | **Daily rhythm** | `/bod`, `/pulse`, `/briefing`, `/eod` |
-| **Knowledge capture** | `/capture`, `/note`, `/park`, `/distill`, `/narrate` |
+| **Knowledge capture** | `/note`, `/park`, `/distill`, `/narrate` |
 | **Retrieval & navigation** | `/search-fort`, `/recall`, `/switch` |
 | **Reflection & maintenance** | `/retro`, `/garden`, `/reminders` |
 | **Work** | `/research`, `/assistant` |

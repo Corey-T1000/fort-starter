@@ -171,7 +171,7 @@ Classify what the user says, announce the route, dispatch. Always use the **exis
 | "Collect/merge workers" | `/fort-collect` | "Collecting workers..." |
 | **Knowledge** | | |
 | "Note this" / "remember X" | `/note` | "Routing to `/note`..." |
-| "Save this research" | `/capture` | "Capturing findings..." |
+| "Save this research" | `/note` | "Routing to `/note` (auto-detects structured-research context)..." |
 | "What do we know about X?" | `fort-memory recall "<topic>"` + Search: memory/, notes/ | "Querying memory + searching knowledge base..." |
 | "Research X" / "dig into X" | `/research` | "Spawning research agent..." |
 | "Catch me up" / "what have I missed" | `/briefing` | "Running briefing..." |

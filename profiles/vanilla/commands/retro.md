@@ -26,7 +26,7 @@ Focused reflection on a single event — a feature that shipped, a bug that bit,
 ## When NOT to Use
 
 - For broad weekly reflection — use `/weekly-review`
-- For quick gotcha capture — use `/capture` or the hookify prompt
+- For quick gotcha capture — use `/note` or the hookify prompt
 - For routine work that went smoothly — not everything needs a retro
 
 ## Workflow
@@ -89,7 +89,7 @@ The retro produces three types of output:
 **Memory entries** (operational knowledge for future sessions):
 - Route to the appropriate `memory/XX-topic.md` using the JD index
 - Format as dated entries with context
-- Same as `/capture` but sourced from reflection rather than research
+- Same as `/note` but sourced from reflection rather than research
 
 **Hookify candidates** (preventable gotchas):
 - If a surprise or mistake could be caught by a hook, offer: "This could be a hookify rule. Worth it?"

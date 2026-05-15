@@ -11,7 +11,7 @@ FORT_PROJECTS="$HOME/.claude/projects/-$(echo "$FORT_ROOT" | sed 's|^/||; s|/|-|
 CRITICAL_SKILLS=(
   "plugins/fort/skills/distill.md"
   "plugins/fort/skills/eod.md"
-  "plugins/fort/skills/capture.md"
+  "plugins/fort/skills/note.md"
 )
 
 BROKEN=""
