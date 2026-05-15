@@ -24,7 +24,7 @@ Thin wrapper around `bin/fort-search` (Python + ripgrep). No embeddings, no inde
 - "All finished `budget` work" → `--tag=budget --status=shipped`
 - "Anything related to `escape-hatch`" → `--related-to=escape-hatch`
 - "Files under JD 53.06" → `--jd=53.06`
-- NOT `/capture` (structured research dump), NOT `/note` (fresh capture) — this is READ-ONLY discovery.
+- NOT `/note` (fresh capture or structured-research dump) — this is READ-ONLY discovery.
 
 ## Usage
 
