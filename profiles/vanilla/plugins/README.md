@@ -8,16 +8,17 @@ Vanilla is the public-safe baseline. Bundling extra plugins here would mean ever
 
 ## How to add a plugin
 
-Drop a Claude Code plugin directory in here (must contain `plugin.json` at its root). `fort-bootstrap --refresh` will copy it into `./plugins/` alongside the core plugins on next assembly. Profile plugins are additive — they install on top of `core/plugins/`, not in place of it.
+Drop a Claude Code plugin directory in here (must contain a manifest at `.claude-plugin/plugin.json`). `fort-bootstrap --refresh` will copy it into `./plugins/` alongside the core plugins on next assembly. Profile plugins are additive — they install on top of `core/plugins/`, not in place of it.
 
 ```
 profiles/vanilla/plugins/
 └── my-plugin/
-    ├── plugin.json
+    ├── .claude-plugin/
+    │   └── plugin.json
     ├── skills/
     └── ...
 ```
 
 ## Reference: `core/plugins/`
 
-For examples of the plugin layout that fort-starter ships, see `core/plugins/fort/` (16 workflow skills) and `core/plugins/fort-tools/` (utility skills with `plugin.json`, `skills/`, and a `README.md`). The same structural conventions apply to plugins you add here.
+For examples of the plugin layout that fort-starter ships, see `core/plugins/fort/` (16 workflow skills) and `core/plugins/fort-tools/` (utility skills with `.claude-plugin/plugin.json`, `skills/`, and a `README.md`). The same structural conventions apply to plugins you add here.
