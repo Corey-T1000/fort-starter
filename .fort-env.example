@@ -1,0 +1,96 @@
+# fort-starter env vars — copy to .fort-env and customize.
+#
+#   cp .fort-env.example .fort-env && $EDITOR .fort-env
+#
+# Sourced by scripts in core/bin/ and referenced by skills in core/plugins/.
+# The .fort-env file is gitignored; this example file IS tracked so additions
+# stay discoverable. See README.md for full setup instructions.
+#
+# fort-bootstrap writes a minimal .fort-env on install (FORT_ROOT,
+# FORT_REMOTE_IP, FORT_PROFILE, FORT_USER). The rest are optional and only
+# needed when you opt into the feature that uses them.
+
+# ───────────────────────────────────────────────────────────────
+# Required (auto-set by fort-bootstrap — usually no need to touch)
+# ───────────────────────────────────────────────────────────────
+
+# FORT_ROOT — absolute path to the repo root. fort-bootstrap sets this on
+# install; every script in core/bin/ falls back to "$HOME/claudes-fort" if
+# unset. Override only if you keep the repo somewhere else.
+# FORT_ROOT="$HOME/claudes-fort"
+
+# FORT_USER — the human's username, used to locate per-user paths (e.g.
+# sandbox home, Claude Code project directory). Defaults to $(whoami).
+# FORT_USER="$(whoami)"
+
+# FORT_PROFILE — which profile under profiles/ was assembled (e.g. "vanilla").
+# Written by fort-bootstrap; don't edit manually — re-run fort-bootstrap to
+# switch profiles.
+# FORT_PROFILE="vanilla"
+
+# ───────────────────────────────────────────────────────────────
+# Optional — set these when you opt into the matching feature
+# ───────────────────────────────────────────────────────────────
+
+# FORT_KNOWLEDGE_BASE — path to an external knowledge base (e.g. an Obsidian
+# vault or plain markdown directory) used by /bod, /eod, /capture, /note,
+# /distill. Default fallback is "$HOME/knowledge-base". Skills that need it
+# degrade gracefully when the directory doesn't exist.
+# FORT_KNOWLEDGE_BASE="$HOME/knowledge-base"
+
+# FORT_REMOTE_IP — IP or hostname of a remote server running Fort Mail /
+# Docker services. Used by fort-scan, fort-drift, fort-register, and several
+# others to construct default URLs. Leave blank for local-only setups.
+# FORT_REMOTE_IP=""
+
+# FORT_REMOTE_HOST — SSH alias for the same remote server, used by fort-start,
+# fort-stop, fort-sync, fort-status, fort-memory, devlog-push, and daily-receipt
+# for ssh/rsync operations. Configure this in ~/.ssh/config. Defaults to the
+# literal string "remote" when unset (which won't resolve).
+# FORT_REMOTE_HOST="my-server"
+
+# FORT_REMOTE_HOSTNAME — display name for the remote server, surfaced by
+# guard-deploy.sh in confirmation prompts. Defaults to "remote-server".
+# FORT_REMOTE_HOSTNAME="my-server"
+
+# FORT_REMOTE_BACKUP_PATH — directory on the remote host where distill-background
+# rsyncs memory/ snapshots after each capture. Used by core/bin/distill-background.
+# Defaults to "/server/fort/backups/memory".
+# FORT_REMOTE_BACKUP_PATH="/server/fort/backups/memory"
+
+# FORT_REMOTE_MEMORY_PATH — path (relative to the remote SSH user's home, or
+# absolute) where fort-memory syncs the canonical memory/ tree. Used by
+# core/bin/fort-memory. Defaults to "fort-memory-remote".
+# FORT_REMOTE_MEMORY_PATH="fort-memory-remote"
+
+# FORT_MAIL_URL — full URL of the Fort Mail HTTP API, used by fort-register
+# (PostToolUse hook) and fort-drift. Defaults to
+# "http://${FORT_REMOTE_IP:-127.0.0.1}:8080". Set explicitly if Fort Mail
+# runs on a non-default port or host.
+# FORT_MAIL_URL="http://127.0.0.1:8080"
+
+# FORT_MAIL_PORT — port the Fort Mail service binds to (and that fort-start /
+# fort-status probe). Used by core/bin/fort-mail, fort-start, fort-status.
+# Defaults to 8080.
+# FORT_MAIL_PORT=8080
+
+# FORT_MAIL_API_KEY — bearer token sent as `Authorization: Bearer <key>` when
+# calling the Fort Mail API. Used by core/hooks/fort-register.sh and the
+# /pulse + /assistant skills (profiles/vanilla/commands/) to read agent inboxes.
+# Leave unset if your Fort Mail instance doesn't require auth.
+# FORT_MAIL_API_KEY=""
+
+# FORT_DEPLOY_ALLOWLIST — pipe-separated list of project names that
+# guard-deploy.sh recognizes when labeling deploy-confirmation prompts
+# (e.g. "home-dashboard|api-gateway"). Used by core/hooks/guard-deploy.sh.
+# FORT_DEPLOY_ALLOWLIST=""
+
+# FORT_ALLOW_MAIN — set to "1" to disable the guard-main-worktree.sh prompt
+# that nudges you toward a worktree before editing on the main branch. Useful
+# for quick one-off edits; leave unset for normal worktree-first workflow.
+# Used by core/hooks/guard-main-worktree.sh.
+# FORT_ALLOW_MAIN=0
+
+# FORT_PRINTER_IP — IP/hostname of a receipt printer exposing the daily-summary
+# endpoint at :9101. Used by core/bin/daily-receipt. Defaults to 127.0.0.1.
+# FORT_PRINTER_IP="127.0.0.1"
