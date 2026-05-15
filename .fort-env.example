@@ -53,8 +53,44 @@
 # guard-deploy.sh in confirmation prompts. Defaults to "remote-server".
 # FORT_REMOTE_HOSTNAME="my-server"
 
+# FORT_REMOTE_BACKUP_PATH — directory on the remote host where distill-background
+# rsyncs memory/ snapshots after each capture. Used by core/bin/distill-background.
+# Defaults to "/server/fort/backups/memory".
+# FORT_REMOTE_BACKUP_PATH="/server/fort/backups/memory"
+
+# FORT_REMOTE_MEMORY_PATH — path (relative to the remote SSH user's home, or
+# absolute) where fort-memory syncs the canonical memory/ tree. Used by
+# core/bin/fort-memory. Defaults to "fort-memory-remote".
+# FORT_REMOTE_MEMORY_PATH="fort-memory-remote"
+
 # FORT_MAIL_URL — full URL of the Fort Mail HTTP API, used by fort-register
 # (PostToolUse hook) and fort-drift. Defaults to
 # "http://${FORT_REMOTE_IP:-127.0.0.1}:8080". Set explicitly if Fort Mail
 # runs on a non-default port or host.
 # FORT_MAIL_URL="http://127.0.0.1:8080"
+
+# FORT_MAIL_PORT — port the Fort Mail service binds to (and that fort-start /
+# fort-status probe). Used by core/bin/fort-mail, fort-start, fort-status.
+# Defaults to 8080.
+# FORT_MAIL_PORT=8080
+
+# FORT_MAIL_API_KEY — bearer token sent as `Authorization: Bearer <key>` when
+# calling the Fort Mail API. Used by core/hooks/fort-register.sh and the
+# /pulse + /assistant skills (profiles/vanilla/commands/) to read agent inboxes.
+# Leave unset if your Fort Mail instance doesn't require auth.
+# FORT_MAIL_API_KEY=""
+
+# FORT_DEPLOY_ALLOWLIST — pipe-separated list of project names that
+# guard-deploy.sh recognizes when labeling deploy-confirmation prompts
+# (e.g. "home-dashboard|api-gateway"). Used by core/hooks/guard-deploy.sh.
+# FORT_DEPLOY_ALLOWLIST=""
+
+# FORT_ALLOW_MAIN — set to "1" to disable the guard-main-worktree.sh prompt
+# that nudges you toward a worktree before editing on the main branch. Useful
+# for quick one-off edits; leave unset for normal worktree-first workflow.
+# Used by core/hooks/guard-main-worktree.sh.
+# FORT_ALLOW_MAIN=0
+
+# FORT_PRINTER_IP — IP/hostname of a receipt printer exposing the daily-summary
+# endpoint at :9101. Used by core/bin/daily-receipt. Defaults to 127.0.0.1.
+# FORT_PRINTER_IP="127.0.0.1"
