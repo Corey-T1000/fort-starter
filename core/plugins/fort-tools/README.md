@@ -16,7 +16,7 @@ The split keeps the `fort` plugin focused (and easier to reason about as the can
 
 Build a self-contained HTML viewer that traces every block of derived content back to its source. Side-by-side LIVE | OURS columns, color-coded pair tinting, edit-type classification (verbatim / trimmed / edited / novel), word-level diff coloring, click-to-slide alignment.
 
-**Originally built for** verifying AuthZed Series B data room one-pagers against live customer pages on authzed.com. Now reusable for any source-vs-derivative verification — decks vs source docs, summaries vs originals, etc.
+**Use it for** any source-vs-derivative verification — one-pagers vs the live pages they derive from, decks vs source docs, summaries vs originals, etc.
 
 See `skills/diff-view.md` for the full skill definition and `skills/diff-view-references/template.html` for the canonical UI shape.
 
