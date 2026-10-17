@@ -251,6 +251,13 @@ shipped_skills() {
   done | sort -u
 }
 
+# Escape a value for the replacement side of sed "s|...|<here>|" (\, | and &).
+sed_repl() { printf '%s' "$1" | sed 's/[\\|&]/\\&/g'; }
+# Escape a path for a JSON string, then for sed.
+json_path() { sed_repl "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"; }
+# Escape a path for XML text (plists), then for sed.
+xml_path() { sed_repl "$(printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')"; }
+
 generate_manifest() {
   local profile="$1"
   local profile_dir="$FORT_ROOT/profiles/$profile"
@@ -436,7 +443,7 @@ assemble_fort() {
     name=$(basename "$f")
     if [[ "$name" == *.plist ]]; then
       # Plist files can't use shell vars — sed-replace the placeholder
-      sed "s|__FORT_ROOT__|$FORT_ROOT|g; s|__FORT_USER__|$(whoami)|g" "$f" > "$FORT_ROOT/bin/$name"
+      sed "s|__FORT_ROOT__|$(xml_path "$FORT_ROOT")|g; s|__FORT_USER__|$(xml_path "$(whoami)")|g" "$f" > "$FORT_ROOT/bin/$name"
     else
       cp -f "$f" "$FORT_ROOT/bin/$name"
     fi
@@ -491,7 +498,8 @@ assemble_fort() {
   # 6. Copy profile settings.json → .claude/settings.local.json (with path templating)
   if [[ -f "$profile_dir/settings.json" ]]; then
     mkdir -p "$FORT_ROOT/.claude"
-    sed "s|__FORT_ROOT__|$FORT_ROOT|g" "$profile_dir/settings.json" > "$FORT_ROOT/.claude/settings.local.json"
+    # Hook commands quote the path in settings.json, so a FORT_ROOT with spaces works.
+    sed "s|__FORT_ROOT__|$(json_path "$FORT_ROOT")|g" "$profile_dir/settings.json" > "$FORT_ROOT/.claude/settings.local.json"
     log "Settings installed from $profile profile (paths resolved)"
   fi
 
@@ -532,6 +540,18 @@ assemble_fort() {
     skill_count=$((skill_count + 1))
   done < <(shipped_skills "$profile")
   rmdir "$FORT_ROOT/.claude/commands" 2>/dev/null || true
+  # A skill disabled after it was installed: remove our copy (only names the template ships).
+  local marker
+  for marker in "$profile_dir/skills-disabled/"*; do
+    [[ -e "$marker" ]] || continue
+    name=$(basename "$marker")
+    [[ "$name" == .gitkeep ]] && continue
+    ls "$FORT_ROOT"/core/plugins/*/skills/"$name"/SKILL.md >/dev/null 2>&1 || continue
+    if [[ -d "$FORT_ROOT/.claude/skills/$name" ]]; then
+      rm -rf "$FORT_ROOT/.claude/skills/$name"
+      info "Removed disabled skill: $name"
+    fi
+  done
   log "Skills installed: $skill_count (.claude/skills/<name>/SKILL.md)"
 
   # 9. Create personal dirs if they don't exist
