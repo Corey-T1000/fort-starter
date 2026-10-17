@@ -61,19 +61,48 @@ Then wire the hook (see "How the hook feeds it") and start Claude Code from a cm
 A cmux custom sidebar cannot type into a terminal. Its action scopes cover select, close, split, zoom, navigate and opening URLs, with no send-text, so a chip's direct send would be dropped silently. Instead a chip writes a request in front of the desk's workspace description:
 
 ```
-say:<surface-uuid>:<reply> · <rest of the description>
+say:<surface-uuid>:<label-key>:<epoch>:<reply> · <rest of the description>
 ```
 
-`bin/fort-board-relay` polls `cmux workspace list` every second. It strips the request first, so it fires once even if the send fails, checks that the surface belongs to that workspace, then runs `cmux send` and `cmux send-key enter`. It only relays the board's fixed replies (`yes`, `no`); any other text in a `say:` prefix is ignored.
+`label-key` is a hash of the label the chip answered (`Your move? · <question>`) and `epoch` is the tap time. `bin/fort-board-relay` polls `cmux workspace list` every second and strips the request first, so it fires at most once. It then types the reply and presses Enter (`cmux send` + `cmux send-key enter`) only if:
 
-Install it as a launchd agent (after `fort-bootstrap`, which copies the plist to `bin/` with your path filled in):
+- the reply is one of the board's fixed replies (`yes`, `no`)
+- the request is at most 2 minutes old, so a tap left over from a sleeping Mac or a stopped relay is dropped, never replayed later
+- the desk's progress label is still exactly the `Your move?` label that was tapped. If the desk has moved on, the request is dropped. That covers a new question, `Cooking` because you answered in the terminal, and `Needs you`, where Enter would pick a permission prompt's default.
+- the surface belongs to that workspace
+
+Every dropped request and every failed cmux call is logged as one line to stderr (the launchd log). Each distinct message is logged at most once every 5 minutes.
+
+**Socket access (read this first).** The relay talks to cmux over its control socket. cmux's default automation mode, "cmux processes only", accepts only processes started inside cmux terminals, so **a relay started by launchd is refused on a stock install**. Pick one:
+
+1. **Run it inside cmux (no settings change).** Open a tab in a desk you keep around and run `bin/fort-board-relay` there. It works while that tab is open.
+2. **Run it under launchd.** Let outside processes in with a password. In `~/.config/cmux/cmux.json`:
+
+   ```json
+   "automation": { "socketControlMode": "password", "socketPassword": "<pick a password>" }
+   ```
+
+   Then `cmux reload-config`, and put the same value in `.fort-env` as `CMUX_SOCKET_PASSWORD="<that password>"`. The relay reads it from there, so the secret never goes in the plist. cmux also has an `allowAll` mode (any local process, set via `CMUX_SOCKET_MODE=allowAll` in cmux's environment); avoid it on shared machines.
+
+Check it from a terminal outside cmux (for example Terminal.app):
+
+```bash
+bin/fort-board-relay --check     # "ok: cmux reachable, N workspaces" or the error and this pointer
+```
+
+Install as a launchd agent (after `fort-bootstrap`, which copies the plist to `bin/` with your path filled in):
 
 ```bash
 cp bin/com.fort.board-relay.plist ~/Library/LaunchAgents/
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.fort.board-relay.plist
 ```
 
-Stop it with `launchctl bootout gui/$(id -u)/com.fort.board-relay`. Logs go to `logs/fort-board-relay.log`. To check it without launchd, use `bin/fort-board-relay --once` (one sweep) or `bin/fort-board-relay --parse 'say:<uuid>:yes'` (shows how a description is read, no cmux calls). The plist's PATH includes cmux's bundled CLI at `/Applications/cmux.app/Contents/Resources/bin`; edit it if cmux lives elsewhere. Without the relay the board still works, but chips do nothing beyond showing "sent".
+- **Stop it:** `launchctl bootout gui/$(id -u)/com.fort.board-relay`
+- **Logs:** `logs/fort-board-relay.log`
+- **Other modes:** `bin/fort-board-relay --once` runs one sweep. `bin/fort-board-relay --parse '<description>' --label '<label>' --now <epoch>` shows how a request is read and whether it would be delivered, without calling cmux.
+- **PATH:** the plist includes cmux's bundled CLI at `/Applications/cmux.app/Contents/Resources/bin`. Edit it if cmux lives elsewhere.
+
+Without the relay the board still works, but chips do nothing beyond showing "sent".
 
 ## How the hook feeds it
 
@@ -124,7 +153,7 @@ With the variables unset it prints a `skipped` line and makes no call.
 node core/cmux/harness.mjs
 ```
 
-It loads `SidebarRuntime.js` from the installed cmux app (override with `CMUX_SIDEBAR_RUNTIME=<path>`), renders the board against fixture desks, taps menu items and chips, and checks the text and the cmux actions that come out. It also feeds the description a `yes` chip writes to `bin/fort-board-relay --parse`, so the board and the relay can't drift apart on the request format or the reply list. Needs `node` and `python3`. Exit 0 = all pass.
+It loads `SidebarRuntime.js` from the installed cmux app (override with `CMUX_SIDEBAR_RUNTIME=<path>`), renders the board against fixture desks, taps menu items and chips, and checks the text and the cmux actions that come out. It also feeds the description a `yes` chip writes to `bin/fort-board-relay --parse`. It checks delivery while the ask stands, and drops when stale, on `Needs you`, after a new ask, or once you answered. Board and relay must hash labels identically, emoji included. This keeps them from drifting apart on the request format or the reply list. Needs `node` and `python3`. Exit 0 = all pass.
 
 ## Known limits
 

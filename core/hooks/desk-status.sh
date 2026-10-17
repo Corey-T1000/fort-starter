@@ -10,8 +10,9 @@
 #       "Your move? · <q>"   when <q> is one a bare yes or no answers (the
 #                            board then offers yes / no quick-reply chips)
 #       "Ready to close · …" when a /narrate capture for this session
-#                            ($FORT_ROOT/memory/session_*.md carrying
-#                            "originSessionId: <id>") landed after the last prompt
+#                            (memory/session_*.md carrying "originSessionId:
+#                            <id>", in the desk's own worktree or in
+#                            $FORT_ROOT) landed after the last prompt
 #
 # The progress VALUE is the context-window fill (0..1), estimated from the
 # transcript tail's latest usage block; the board draws it as a meter.
@@ -28,9 +29,11 @@
 case "$CMUX_WORKSPACE_ID" in *[!A-Za-z0-9-]*) exit 0 ;; esac
 command -v cmux >/dev/null 2>&1 || exit 0
 
-_FORT_ENV="${FORT_ROOT:-$HOME/claudes-fort}/.fort-env"
+# FORT_ROOT: settings export it inside Claude; otherwise the repo this hook
+# lives in (<root>/.claude/hooks/ when installed, <root>/core/hooks/ in source).
+FORT_ROOT="${FORT_ROOT:-$(cd "$(dirname "$0")/../.." 2>/dev/null && pwd -P)}"
+_FORT_ENV="$FORT_ROOT/.fort-env"
 [ -f "$_FORT_ENV" ] && . "$_FORT_ENV"
-FORT_ROOT="${FORT_ROOT:-$HOME/claudes-fort}"
 
 status="${1:-done}"
 STATE_DIR="$HOME/.cache/fort/desk"
@@ -148,7 +151,8 @@ def human(d):
     return isinstance(c, str) and bool(c.strip()) and not c.strip().startswith("<")
 
 # Ready to close: done, and a /narrate file for this session is newer than
-# the last typed prompt.
+# the last typed prompt. /narrate writes to the memory/ of the repo it runs in,
+# which for a spawned desk is its worktree, so check that root and FORT_ROOT.
 sid = str(hook.get("session_id") or "")
 if turn == "done" and re.fullmatch(r"[A-Za-z0-9-]+", sid):
     last_ts = 0
@@ -159,14 +163,27 @@ if turn == "done" and re.fullmatch(r"[A-Za-z0-9-]+", sid):
             except Exception:
                 pass
             break
-    mem = os.path.join(os.environ.get("FORT_ROOT", ""), "memory")
-    try:
-        names = [n for n in os.listdir(mem) if n.startswith("session_") and n.endswith(".md")]
-    except Exception:
-        names = []
+    roots = []
+    cwd = str(hook.get("cwd") or "")
+    if cwd and os.path.isdir(cwd):
+        try:
+            import subprocess
+            top = subprocess.run(["git", "-C", cwd, "rev-parse", "--show-toplevel"],
+                                 capture_output=True, text=True, timeout=2).stdout.strip()
+            if top:
+                roots.append(top)
+        except Exception:
+            pass
+    if os.environ.get("FORT_ROOT"):
+        roots.append(os.environ["FORT_ROOT"])
     needle = "originSessionId: " + sid
-    for n in names:
-        p = os.path.join(mem, n)
+    files = []
+    for mem in dict.fromkeys(os.path.join(os.path.realpath(r), "memory") for r in roots):
+        try:
+            files += [os.path.join(mem, n) for n in os.listdir(mem) if n.startswith("session_") and n.endswith(".md")]
+        except Exception:
+            pass
+    for p in files:
         try:
             if last_ts and os.path.getmtime(p) > last_ts and needle in open(p, errors="replace").read(4096):
                 turn = "ready"

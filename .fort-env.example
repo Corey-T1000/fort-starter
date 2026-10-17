@@ -102,3 +102,10 @@
 # the board shows the plain label from .claude/hooks/desk-status.sh instead.
 # FORT_GIST_URL="http://localhost:11434/api/generate"
 # FORT_GIST_MODEL="llama3.2:3b"
+
+# CMUX_SOCKET_PASSWORD — only for running core/bin/fort-board-relay under
+# launchd with cmux's automation mode set to "password" (see
+# core/cmux/README.md, "Quick-reply relay"). The relay reads it from here so
+# the secret stays out of the plist. Leave unset when the relay runs inside a
+# cmux terminal.
+# CMUX_SOCKET_PASSWORD=""

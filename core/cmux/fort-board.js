@@ -269,16 +269,18 @@ const hookSummary = (w) => hookTurn(w).text || unknownLabel(w);
 // prefix on the workspace description, so cmux keeps it across sidebar
 // reloads and restarts; descBody() strips it for every other reader.
 const ACK_RE = /^ack:([0-9a-z]+)(?: · |$)/;
-// A pending quick reply ("say:<surface>:<reply> · ", see sendReply) sits in front.
-const SAY_RE = /^say:[0-9A-Fa-f-]{36}:[a-z ]+(?: · |$)/;
+// A pending quick reply ("say:<surface>:<label key>:<epoch>:<reply> · ", see
+// sendReply) sits in front.
+const SAY_RE = /^say:[0-9A-Fa-f-]{36}:[0-9a-z]+:\d+:[a-z ]+(?: · |$)/;
 const stripSay = (d) => (d ?? "").replace(SAY_RE, "");
 const descBody = (w) => stripSay(w.description).replace(ACK_RE, "");
-function ackKey(w) { // short stable hash of the ask + when the agent entered this state
-  const s = hookLabel(w) + "|" + liveSince(w);
+function hash36(s) { // djb2-xor, base 36; bin/fort-board-relay label_key() matches it
   let h = 5381;
   for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
   return h.toString(36);
 }
+// Short stable hash of the ask + when the agent entered this state.
+const ackKey = (w) => hash36(hookLabel(w) + "|" + liveSince(w));
 const ackOverride = new Map(); // wsId -> key ("" = un-acked) until the host agrees
 const [ackTick, setAckTick] = signal(0);
 function storedAck(w) {
@@ -557,14 +559,28 @@ const board = computed(() => {
 
 const entries = computed(() => board().entries);
 
-// Desks a header's "Close N … desks" may close: in that state, and never
-// pinned, dirty, selected or an anchor.
+// A Fort desk: a Claude session here went through the Fort's hooks or the
+// board, so it carries a desk-status label (cmux keeps the last one after
+// Claude exits), an ack or quick-reply prefix, or a spawn description. A plain
+// shell workspace (dev server, ssh) has none of these, and cmux reports it as
+// agent-less, which the board reads as Ended.
+function isFortDesk(w) {
+  const l = hookLabel(w);
+  if (l === "Cooking" || l === "Needs you" || l === "Waiting" || hookTurn(w).turn) return true;
+  const d = w.description ?? "";
+  return SAY_RE.test(d) || ACK_RE.test(stripSay(d)) || descBody(w).startsWith("spawn · ");
+}
+
+// Desks a header's "Close N … desks" may close: in that state, Fort desks
+// only, and never pinned, dirty, selected or an anchor. Closing a workspace
+// kills its processes, so a plain shell workspace is never offered.
 // which: "ended" (dead desks) | "ready" (captured, nothing owed).
 function closableIn(groupId, which = "ended") {
   const t = now();
   const sel = selectedId();
   return allWorkspaces().filter((w) =>
     isDeskWs(w)
+    && isFortDesk(w)
     && (groupId ? w.group === groupId : (!w.group || !groupById(w.group)))
     && deskState(w, t) === which
     && !w.pinned && w.dirty !== true && !w.selected && w.id !== sel);
@@ -715,7 +731,10 @@ function deskMenu(entry) {
 // action scope (cmux sidebars may only select/close/split/zoom/navigate/open
 // URLs), so a chip puts "say:<surface>:<reply> · " in front of the desk's
 // description and bin/fort-board-relay (a launchd agent) types the reply +
-// Enter into that terminal, then strips the prefix. Your move only: a
+// Enter into that terminal, then strips the prefix. The request carries a hash
+// of the label it answered and the tap time: the relay drops it when it is
+// over two minutes old or the desk's label has changed since (a new ask, or
+// "Needs you", where Enter would pick a permission prompt's default). Your move only: a
 // "Needs you" permission prompt is a picker, and typed words would pick wrong.
 // yes / no only on "Your move?" asks (a bare yes or no answers them); every
 // open Your move card also gets ack.
@@ -734,7 +753,8 @@ function sendReply(w, text) {
   sentReply.set(w.id, { key: ackKey(w), text });
   setSentTick(sentTick() + 1);
   const d = stripSay(w.description);
-  cmux("workspace.action", { workspace_id: w.id, action: "set_description", description: "say:" + sid + ":" + text + (d ? " · " + d : "") });
+  const req = "say:" + sid + ":" + hash36(hookLabel(w)) + ":" + now() + ":" + text;
+  cmux("workspace.action", { workspace_id: w.id, action: "set_description", description: req + (d ? " · " + d : "") });
 }
 function replyChip(w, text) {
   return Text(text).font(11).color("secondary").lineLimit(1)

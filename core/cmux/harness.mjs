@@ -83,6 +83,10 @@ const workspaces = [
   ws(14, "fort:promoted-anchor", [agent("needs_input", 100)], "Done · promoted anchor still listed", { group: "g2" }),
   // Ended desk: folds into the section's parked row.
   ws(16, "fort:old-ended", [agent("ended", 90000)], null),
+  // Close-ended targets: only desks with Fort label history. A Claude desk
+  // whose session ended keeps its last label; plain shell workspaces don't.
+  ws(26, "fort:ended-claude", [agent("ended", 90000)], "Done · old work wrapped"),
+  ws(27, "dev-server", [], null),
   // Pinned order: g3's anchor sits last by index but pin:1 puts Home first.
   ws(17, "fort:anchor-home", [], null, { group: "g3", description: "pin:1" }),
   // "Your move?" = a bare yes/no answers it: yes / no / ack chips. Plain Your move: ack only.
@@ -131,7 +135,8 @@ const checks = [
   ["header counts need-you", helps.includes("1 need you")],
   ["legacy desk still Waiting", has("Waiting 1h")],
   ["24h+ Done folds into parked row", !has("Old desk: shipped") && !texts.includes("fort:parked-done")],
-  ["ended desk folds into parked row", texts.includes("2 parked") && !has("fort:old-ended")],
+  ["ended desk folds into parked row", texts.includes("4 parked") && !has("fort:old-ended")],
+  ["close-ended offers only the Fort desk, not plain shells", has("Close 1 ended desk") && !has("Close 2 ended desks") && !has("Close 3 ended desks")],
   ["Ready state text", has("Ready 3m")],
   ["header counts ready", helps.includes("1 ready")],
   ["close-ready menu item", has("Close 1 ready desk (captured)")],
@@ -160,9 +165,9 @@ const checks = [
 ];
 // A chip writes "say:<surface>:<reply> · " for bin/fort-board-relay; the relay
 // must read that exact string (same fixed replies, same shape).
-const relayParse = (desc) => {
+const relayParse = (desc, label = "", at = T) => {
   try {
-    return JSON.parse(execFileSync("python3", [RELAY, "--parse", desc], { encoding: "utf8" }));
+    return JSON.parse(execFileSync("python3", [RELAY, "--parse", desc, "--label", label, "--now", String(at)], { encoding: "utf8" }));
   } catch (e) {
     return { error: String(e) };
   }
@@ -173,17 +178,27 @@ const relayParse = (desc) => {
   if (id !== undefined) ctx.__dispatch(id, "tap", "null");
   const say = actions.find((a) => a.method === "workspace.action" && a.params?.action === "set_description");
   const desc = say?.params?.description ?? "";
-  checks.push(["chip writes a say request for the relay", desc.startsWith("say:" + SID + ":yes")]);
+  checks.push(["chip writes a keyed, timestamped say request", new RegExp("^say:" + SID + ":[0-9a-z]+:" + T + ":yes$").test(desc)]);
   checks.push(["chip never calls send_text (no sidebar scope)", !actions.some((a) => a.method === "surface.send_text")]);
   checks.push(["sent confirmation shows", textsNow().some((s) => s.includes('sent "yes"'))]);
-  const r = relayParse(desc);
-  checks.push(["relay parses the chip's request", r?.surface === SID.toUpperCase() && r?.reply === "yes" && r?.rest === ""]);
-  const kept = relayParse("say:" + SID + ":no · spawn · spawn/x");
+  const ASK = "Your move? · commit the playground files now?";
+  const r = relayParse(desc, ASK, T + 5);
+  checks.push(["relay delivers the chip's request while the ask stands", r?.surface === SID.toUpperCase() && r?.reply === "yes" && r?.rest === "" && r?.deliver === true]);
+  checks.push(["relay drops a request older than 2 min", relayParse(desc, ASK, T + 300)?.deliver === false]);
+  checks.push(["relay drops it once the desk reads Needs you", relayParse(desc, "Needs you", T + 5)?.deliver === false]);
+  checks.push(["relay drops it after a new ask", relayParse(desc, "Your move? · delete the old branch?", T + 5)?.deliver === false]);
+  checks.push(["relay drops it once you answered (Cooking)", relayParse(desc, "Cooking", T + 5)?.deliver === false]);
+  // Board and relay hash labels the same way, emoji (UTF-16 surrogates) included.
+  const hash36 = (str) => { let h = 5381; for (let i = 0; i < str.length; i++) h = ((h * 33) ^ str.charCodeAt(i)) >>> 0; return h.toString(36); };
+  const EMOJI = "Your move? · ship it 🚀 now?";
+  checks.push(["relay label hash matches the board's (emoji too)", relayParse("say:" + SID + ":" + hash36(EMOJI) + ":" + T + ":yes", EMOJI, T)?.deliver === true]);
+  const kept = relayParse("say:" + SID + ":abc:" + T + ":no · spawn · spawn/x");
   checks.push(["relay keeps the rest of the description", kept?.reply === "no" && kept?.rest === "spawn · spawn/x"]);
-  checks.push(["relay ignores replies the board never sends", relayParse("say:" + SID + ":rm -rf ~") === null]);
+  checks.push(["relay ignores replies the board never sends", relayParse("say:" + SID + ":abc:" + T + ":rm -rf ~") === null]);
+  checks.push(["relay ignores an unkeyed request", relayParse("say:" + SID + ":yes") === null]);
   // Every reply the board renders as a chip must be one the relay delivers.
   const boardReplies = helps.map((h) => /^Reply "(.+)" without leaving this tab$/.exec(h)?.[1]).filter(Boolean);
-  const mismatch = boardReplies.filter((q) => relayParse("say:" + SID + ":" + q)?.reply !== q);
+  const mismatch = boardReplies.filter((q) => relayParse("say:" + SID + ":abc:" + T + ":" + q)?.reply !== q);
   checks.push(["relay replies match the board's QUICK_REPLIES", boardReplies.length === 2 && mismatch.length === 0]);
 }
 // Ack menu item writes the ack prefix onto the description.
@@ -209,6 +224,19 @@ if (ackBtn) {
   const after = textsNow();
   checks.push(["parked row opens on tap", after.includes("fort:old-ended") && after.includes("fort:parked-done")]);
   checks.push(["opened parked Done row is compact (bare age, no subtitle)", after.includes("1d") && !after.some((s) => s.includes("Old desk: shipped"))]);
+}
+// Close ended desks: two-step, and only the Fort desk (w26) is closed.
+{
+  actions.length = 0;
+  const btn = () => idsWithText("Close 1 ended desk")[0] ?? idsWithText("Confirm: close 1 ended desk")[0];
+  const first = btn();
+  if (first !== undefined) ctx.__dispatch(first, "tap", "null");
+  const afterOne = actions.filter((a) => a.method === "workspace.close").length;
+  checks.push(["close-ended first tap only arms", first !== undefined && afterOne === 0 && textsNow().includes("Confirm: close 1 ended desk")]);
+  const second = btn();
+  if (second !== undefined) ctx.__dispatch(second, "tap", "null");
+  const closed = actions.filter((a) => a.method === "workspace.close").map((a) => a.params?.workspace_id);
+  checks.push(["close-ended second tap closes only the Fort desk", closed.length === 1 && closed[0] === "w26"]);
 }
 // Pinned folder order: Home (pin:1) renders first, so the first header's menu is Home's.
 {
