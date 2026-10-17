@@ -13,6 +13,12 @@ Thumbs.db
 # Node
 node_modules/
 
+# Spawned desks (git worktrees made by fort-spawn)
+worktrees/
+
+# Launch-video renders (/brag)
+brag-output/
+
 # Session artifacts
 .distill-needed
 .distill-ran
@@ -23,4 +29,5 @@ node_modules/
 # Uncomment after first bootstrap:
 # .claude/hooks/
 # .claude/rules/
+# .claude/skills/
 # .claude/settings.local.json
