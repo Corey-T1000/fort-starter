@@ -18,7 +18,7 @@
 #   print  print the exact command to paste into a new terminal
 #
 # Env:
-#   FORT_ROOT            repo root (default: $HOME/claudes-fort)
+#   FORT_ROOT            repo root (default: the repo this script sits in, <repo>/bin)
 #   FORT_MAIN_BRANCH     branch to fork from (default: origin/HEAD, else main/master)
 #   FORT_SPAWN_LAUNCHER  auto|cmux|tmux|print (default: auto)
 #   FORT_SPAWN_AGENT     the CLI to launch (default: claude)
@@ -27,12 +27,24 @@
 #                        shows up in claude.ai/code and the Claude mobile app
 set -euo pipefail
 
-_FORT_ENV="${FORT_ROOT:-$HOME/claudes-fort}/.fort-env"
-# shellcheck source=/dev/null
-[ -f "$_FORT_ENV" ] && . "$_FORT_ENV"
-FORT_ROOT="${FORT_ROOT:-$HOME/claudes-fort}"
-
 die() { echo "fort-spawn: $*" >&2; exit 1; }
+
+# FORT_ROOT: the env var if set, else the repo this script is installed in
+# (<repo>/bin/fort-spawn, symlinks resolved). Keep in sync with fort-despawn.
+if [ -z "${FORT_ROOT:-}" ]; then
+    _self="$0"
+    while [ -L "$_self" ]; do
+        _link="$(readlink "$_self")"
+        case "$_link" in /*) _self="$_link" ;; *) _self="$(dirname "$_self")/$_link" ;; esac
+    done
+    # cd -P into bin/ first: from a desk, worktrees/<slug>/bin is a link to <repo>/bin
+    _root="$(cd -P "$(dirname "$_self")" 2>/dev/null && cd .. && pwd -P)" || _root=""
+    _top="$(git -C "$_root" rev-parse --show-toplevel 2>/dev/null)" && _top="$(cd -P "$_top" && pwd -P)" || _top=""
+    if [ -n "$_root" ] && [ "$_top" = "$_root" ]; then FORT_ROOT="$_root"; fi
+fi
+[ -n "${FORT_ROOT:-}" ] || die "can't tell which repo to use: run the copy in <repo>/bin, or set FORT_ROOT."
+# shellcheck source=/dev/null
+[ -f "$FORT_ROOT/.fort-env" ] && . "$FORT_ROOT/.fort-env"
 usage() { sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//' >&2; exit "${1:-1}"; }
 
 case "${1:-}" in
@@ -104,7 +116,9 @@ if [ -n "$BRIEF_SRC" ]; then
 fi
 
 AGENT="${FORT_SPAWN_AGENT:-claude}"
-CMD="$AGENT"
+# Every word is quoted with printf %q: paths may hold spaces or quotes, and
+# cmux/tmux hand CMD to a shell.
+CMD="$(printf '%q' "$AGENT")"
 case "${FORT_SPAWN_EFFORT:-}" in
     low|medium|high|xhigh|max) CMD="$CMD --effort $FORT_SPAWN_EFFORT" ;;
     "") ;;
@@ -112,21 +126,42 @@ case "${FORT_SPAWN_EFFORT:-}" in
 esac
 # The name is always passed, so --remote-control's optional value cannot
 # swallow the brief as its argument.
-[ "${FORT_SPAWN_RC:-}" = 1 ] && CMD="$CMD --remote-control '$SLUG'"
-[ -n "$BRIEF_FILE" ] && CMD="$CMD \"\$(cat '$BRIEF_FILE')\""
+[ "${FORT_SPAWN_RC:-}" = 1 ] && CMD="$CMD --remote-control $(printf '%q' "$SLUG")"
+[ -n "$BRIEF_FILE" ] && CMD="$CMD \"\$(cat $(printf '%q' "$BRIEF_FILE"))\""
 
 # --- the worktree -------------------------------------------------------------
 # worktrees/ sits inside the repo; keep it out of `git status` on the default
 # branch without touching the tracked .gitignore.
+EXCLUDE="$(cd "$FORT_ROOT" && cd "$(git rev-parse --git-common-dir)" && pwd -P)/info/exclude"
+mkdir -p "$(dirname "$EXCLUDE")"
 if ! git -C "$FORT_ROOT" check-ignore -q "worktrees/$SLUG"; then
-    EXCLUDE="$(cd "$FORT_ROOT" && cd "$(git rev-parse --git-common-dir)" && pwd -P)/info/exclude"
-    mkdir -p "$(dirname "$EXCLUDE")"
     printf '/worktrees/\n' >> "$EXCLUDE"
 fi
 mkdir -p "$FORT_ROOT/worktrees"
 git -C "$FORT_ROOT" worktree add --quiet -b "$BRANCH" "$WT" "$BASE" \
     || die "git worktree add failed; nothing else was done."
 echo "fort-spawn: worktree $WT on $BRANCH (off $BASE)"
+
+# --- the assembled Fort -------------------------------------------------------
+# fort-bootstrap writes these as untracked files, so a fresh worktree has none
+# of them: no settings (hooks, env), skills, rules, agents or bin/. Symlink each
+# one that exists in $FORT_ROOT, is not tracked on $BASE, and is not already in
+# the worktree. info/exclude is shared by every worktree, so listing the paths
+# there keeps the desk's `git status` clean. Keep in sync with fort-despawn.
+FORT_LINKS=".claude/settings.local.json .claude/hooks .claude/skills .claude/rules .claude/agents .claude/commands bin .fort-env CLAUDE.md"
+LINKED=""
+for P in $FORT_LINKS; do
+    [ -e "$FORT_ROOT/$P" ] || continue
+    [ -z "$(git -C "$FORT_ROOT" ls-tree -r --name-only "$BASE" -- "$P" | head -1)" ] || continue
+    [ -e "$WT/$P" ] || [ -L "$WT/$P" ] && continue
+    mkdir -p "$(dirname "$WT/$P")"
+    ln -s "$FORT_ROOT/$P" "$WT/$P"
+    git -C "$WT" check-ignore -q -- "$P" || printf '/%s\n' "$P" >> "$EXCLUDE"
+    LINKED="$LINKED $P"
+done
+[ -z "$LINKED" ] || echo "fort-spawn: linked from $FORT_ROOT:$LINKED"
+[ -z "$(git -C "$WT" status --porcelain)" ] \
+    || echo "fort-spawn: note: the new worktree is not clean; check \`git -C $(printf '%q' "$WT") status\`." >&2
 
 # --- launch -------------------------------------------------------------------
 LAUNCHED=""
@@ -151,7 +186,7 @@ if [ -n "$LAUNCHED" ]; then
 else
     echo "fort-spawn: open a new terminal and paste:"
     echo
-    echo "  cd '$WT' && $CMD"
+    echo "  cd $(printf '%q' "$WT") && $CMD"
     echo
 fi
 [ -n "$BRIEF_FILE" ] && echo "  brief:    $BRIEF_FILE"

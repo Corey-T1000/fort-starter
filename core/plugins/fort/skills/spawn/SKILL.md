@@ -98,8 +98,14 @@ already briefed. Then come back to the current thread unchanged.
 
 ## Notes
 
+- The desk gets the assembled Fort: every untracked bootstrap output that
+  exists at the repo root (`.claude/settings.local.json`, `.claude/hooks`,
+  `skills`, `rules`, `agents`, `commands`, `bin`, `.fort-env`, `CLAUDE.md`) is
+  symlinked in, so hooks, skills and `bin/` work there. Anything tracked on the
+  default branch is left alone, nothing is overwritten, and the paths go into
+  `.git/info/exclude` so the desk stays clean. `/despawn` unlinks them first.
 - The brief file lives under `.git/fort-spawn/`, so it never dirties the
-  worktree or the default branch.
+  worktree or the default branch. `/despawn` deletes it with the desk.
 - `fort-spawn` adds `/worktrees/` to `.git/info/exclude` if nothing ignores it
   yet, so desks don't show up in `git status` on the default branch.
 - `FORT_SPAWN_AGENT` swaps the CLI that gets launched (default `claude`).

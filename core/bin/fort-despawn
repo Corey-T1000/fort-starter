@@ -5,35 +5,56 @@
 # landed, removes worktrees/<slug> and deletes the branch. Without --yes it is
 # a dry run: it prints the plan and the blockers and changes nothing.
 #
-# Usage: fort-despawn <slug> [--yes]
-#   slug    worktree name under $FORT_ROOT/worktrees/ (branch spawn/<slug>)
-#   --yes   carry out the plan (merge, remove worktree, delete branch)
+# Usage: fort-despawn <slug> [--yes] [--force]
+#   slug     worktree name under $FORT_ROOT/worktrees/ (branch spawn/<slug>)
+#   --yes    carry out the plan (merge, remove worktree, delete branch)
+#   --force  skip ONLY the live-process check, and only when this machine has
+#            no way to run it (no lsof, no /proc). Every other guard stays.
 #
 # Guards (each one stops before anything changes):
 #   - your shell is inside the worktree            (cd out first)
 #   - a process still has its cwd in the worktree  (exit that session first)
 #   - the worktree has uncommitted or untracked changes
-#   - the main checkout is not on the default branch
-#   - the merge would conflict (a failed merge is aborted, never forced)
+#   - the main checkout is not on the default branch, or is mid merge,
+#     cherry-pick, revert, rebase or bisect
+#   - the merge would conflict (a merge this script started and that fails is
+#     aborted; never forced)
+# The Fort links fort-spawn made (settings, hooks, skills, bin/ ...) are not
+# counted as changes and are unlinked before removal; their targets in
+# $FORT_ROOT are never touched.
 # A missing capture (no memory/session_*.md since the spawn) is a warning only.
 # Nothing is pushed.
 #
-# Env: FORT_ROOT (default $HOME/claudes-fort), FORT_MAIN_BRANCH (default:
-#      origin/HEAD, else main/master)
-# Exit: 0 done or clean plan, 1 usage/state, 2 live process, 3 uncommitted
-#       changes, 5 merge failed, 6 teardown incomplete.
+# Env: FORT_ROOT (default: the repo this script sits in), FORT_MAIN_BRANCH (default:
+#      origin/HEAD, else main/master), FORT_DESPAWN_LIVE_CHECK
+#      (auto|lsof|proc|none, default auto)
+# Exit: 0 done or clean plan, 1 usage/state, 2 live process or no way to
+#       check, 3 uncommitted changes, 5 merge failed, 6 teardown incomplete.
 set -euo pipefail
 
-_FORT_ENV="${FORT_ROOT:-$HOME/claudes-fort}/.fort-env"
+# FORT_ROOT: the env var if set, else the repo this script is installed in
+# (<repo>/bin/fort-despawn, symlinks resolved). Keep in sync with fort-spawn.
+if [ -z "${FORT_ROOT:-}" ]; then
+    _self="$0"
+    while [ -L "$_self" ]; do
+        _link="$(readlink "$_self")"
+        case "$_link" in /*) _self="$_link" ;; *) _self="$(dirname "$_self")/$_link" ;; esac
+    done
+    # cd -P into bin/ first: from a desk, worktrees/<slug>/bin is a link to <repo>/bin
+    _root="$(cd -P "$(dirname "$_self")" 2>/dev/null && cd .. && pwd -P)" || _root=""
+    _top="$(git -C "$_root" rev-parse --show-toplevel 2>/dev/null)" && _top="$(cd -P "$_top" && pwd -P)" || _top=""
+    if [ -n "$_root" ] && [ "$_top" = "$_root" ]; then FORT_ROOT="$_root"; fi
+fi
+[ -n "${FORT_ROOT:-}" ] || { echo "fort-despawn: can't tell which repo to use: run the copy in <repo>/bin, or set FORT_ROOT." >&2; exit 1; }
 # shellcheck source=/dev/null
-[ -f "$_FORT_ENV" ] && . "$_FORT_ENV"
-FORT_ROOT="${FORT_ROOT:-$HOME/claudes-fort}"
+[ -f "$FORT_ROOT/.fort-env" ] && . "$FORT_ROOT/.fort-env"
 
-YES=0; SLUG=""
+YES=0; FORCE=0; SLUG=""
 usage() { sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//' >&2; exit "${1:-1}"; }
 while [ $# -gt 0 ]; do
     case "$1" in
         --yes|-y) YES=1 ;;
+        --force) FORCE=1 ;;
         --dry-run) YES=0 ;;
         -h|--help) usage 0 ;;
         -*) echo "fort-despawn: unknown flag $1" >&2; usage 1 ;;
@@ -75,6 +96,18 @@ HAVE_WT=0; [ -d "$WT" ] && HAVE_WT=1
 BLOCK=0      # first blocker's exit code; the dry run reports them all
 block() { local rc="$1"; shift; step "blocker:" "$*"; [ "$BLOCK" != 0 ] || BLOCK="$rc"; }
 
+# The untracked Fort paths fort-spawn symlinks into a desk. Keep in sync.
+FORT_LINKS=".claude/settings.local.json .claude/hooks .claude/skills .claude/rules .claude/agents .claude/commands bin .fort-env CLAUDE.md"
+is_fort_link() {   # is_fort_link <path-in-worktree>: one of OUR links, pointing back at $FORT_ROOT
+    local p
+    for p in $FORT_LINKS; do
+        if [ "$1" = "$p" ] && [ -L "$WT/$p" ] && [ "$(readlink "$WT/$p")" = "$FORT_ROOT/$p" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 echo "fort-despawn: $SLUG ($([ "$YES" = 1 ] && echo executing || echo dry run; true))"
 
 # --- guard: never run from inside the worktree being removed ------------------
@@ -87,22 +120,56 @@ esac
 if [ "$HAVE_WT" = 1 ]; then
     WT_BRANCH="$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
     [ "$WT_BRANCH" = "$BRANCH" ] || die 1 "$WT is on '$WT_BRANCH', not $BRANCH. Refusing to guess."
-    DIRTY="$(git -C "$WT" status --porcelain 2>/dev/null)"
+    # -uall lists each untracked path on its own line, so our links (which
+    # show as "?? <path>" if info/exclude lost them) can be told apart
+    DIRTY=""
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        case "$line" in "?? "*) is_fort_link "${line#?? }" && continue ;; esac
+        DIRTY="$DIRTY$line
+"
+    done <<EOF
+$(git -C "$WT" status --porcelain --untracked-files=all 2>/dev/null)
+EOF
     if [ -n "$DIRTY" ]; then
         block 3 "uncommitted changes in $WT (commit them in the worktree, or discard them by hand):"
-        printf '%s\n' "$DIRTY" | head -20 | sed 's/^/             /'
+        printf '%s' "$DIRTY" | head -20 | sed 's/^/             /'
     else
         step "worktree:" "$WT is clean"
     fi
+
     # a session still running there would be left in a deleted directory
-    if command -v lsof >/dev/null 2>&1; then
-        LIVE="$(lsof -a -d cwd -Fpcn 2>/dev/null | awk -v wt="$WT" '
-            /^p/ { pid = substr($0, 2) } /^c/ { cmd = substr($0, 2) }
-            /^n/ { n = substr($0, 2); if (n == wt || index(n, wt "/") == 1) print pid " " cmd }' | sort -u)"
-        if [ -n "$LIVE" ]; then
-            block 2 "processes still have their working directory in $WT (exit them first):"
-            printf '%s\n' "$LIVE" | sed 's/^/             pid /'
+    LIVE_CHECK="${FORT_DESPAWN_LIVE_CHECK:-auto}"
+    if [ "$LIVE_CHECK" = auto ]; then
+        if command -v lsof >/dev/null 2>&1; then LIVE_CHECK=lsof
+        elif [ -r /proc/self/cwd ] || [ -L /proc/self/cwd ]; then LIVE_CHECK=proc
+        else LIVE_CHECK=none
         fi
+    fi
+    LIVE=""
+    case "$LIVE_CHECK" in
+        lsof)
+            LIVE="$({ lsof -a -d cwd -Fpcn 2>/dev/null || true; } | awk -v wt="$WT" '
+                /^p/ { pid = substr($0, 2) } /^c/ { cmd = substr($0, 2) }
+                /^n/ { n = substr($0, 2); if (n == wt || index(n, wt "/") == 1) print pid " " cmd }' | sort -u)" ;;
+        proc)
+            LIVE="$(for d in /proc/[0-9]*; do
+                        c="$(readlink "$d/cwd" 2>/dev/null)" || continue
+                        case "$c/" in "$WT/"*) echo "${d#/proc/} $(cat "$d/comm" 2>/dev/null)" ;; esac
+                    done | sort -u)" ;;
+        none)
+            if [ "$FORCE" = 1 ]; then
+                step "live:" "WARNING no lsof and no /proc: could NOT check for sessions running in $WT (skipped, --force)"
+            else
+                block 2 "no lsof and no /proc, so running sessions in $WT can't be detected. Install lsof, or exit every session there and re-run with --force."
+            fi ;;
+        *) die 1 "FORT_DESPAWN_LIVE_CHECK must be auto, lsof, proc or none (got '$LIVE_CHECK')." ;;
+    esac
+    if [ -n "$LIVE" ]; then
+        block 2 "processes still have their working directory in $WT (exit them first):"
+        printf '%s\n' "$LIVE" | sed 's/^/             pid /'
+    elif [ "$LIVE_CHECK" != none ]; then
+        step "live:" "no process has its cwd in the worktree (checked with $LIVE_CHECK)"
     fi
 else
     step "worktree:" "$WT already gone; branch only"
@@ -111,6 +178,22 @@ fi
 # --- the main checkout --------------------------------------------------------
 ROOT_BRANCH="$(git -C "$FORT_ROOT" symbolic-ref --quiet --short HEAD || echo detached)"
 [ "$ROOT_BRANCH" = "$BASE" ] || block 1 "$FORT_ROOT is on '$ROOT_BRANCH'; check out $BASE there first."
+# our merge runs in the main checkout; never on top of an operation the user
+# has half done there (a failed merge + abort would throw their work away)
+ROOT_GITDIR="$(git -C "$FORT_ROOT" rev-parse --absolute-git-dir)"
+for ref in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD; do
+    if git -C "$FORT_ROOT" rev-parse -q --verify "$ref" >/dev/null 2>&1; then
+        block 1 "$FORT_ROOT has an unfinished operation ($ref exists). Commit or abort it there first."
+    fi
+done
+for d in rebase-merge rebase-apply; do
+    if [ -d "$ROOT_GITDIR/$d" ]; then
+        block 1 "$FORT_ROOT has a rebase in progress ($d). Finish or abort it there first."
+    fi
+done
+if [ -f "$ROOT_GITDIR/BISECT_LOG" ]; then
+    block 1 "$FORT_ROOT is mid-bisect. Run git bisect reset there first."
+fi
 
 # --- what merges --------------------------------------------------------------
 N=0; MB=""
@@ -135,7 +218,8 @@ fi
 
 # --- capture (a warning, never a blocker) -------------------------------------
 # This desk's capture: a memory/session_*.md added on the branch, or one named
-# for the slug that landed on the default branch since the branch point or was
+# for the slug (session_<date>_<slug>.md, matched on the whole _<slug>.md
+# suffix so `ui` never matches `session_..._build-ui-kit.md`) that landed on the default branch since the branch point or was
 # written into the main checkout's memory/ after the worktree was created.
 # Other new session files are listed but do not count: another desk wrote them.
 OURS=""; ELSEWHERE=""
@@ -145,12 +229,17 @@ if [ -n "$MB" ]; then
 fi
 if [ "$HAVE_WT" = 1 ] && [ -e "$WT/.git" ] && [ -d "$FORT_ROOT/memory" ]; then
     ELSEWHERE="$ELSEWHERE
-$(find "$FORT_ROOT/memory" -maxdepth 1 -name 'session_*.md' -newer "$WT/.git" 2>/dev/null | sed "s|^$FORT_ROOT/||")"
+$(find "$FORT_ROOT/memory" -maxdepth 1 -name 'session_*.md' -newer "$WT/.git" 2>/dev/null | while IFS= read -r f; do echo "memory/${f##*/}"; done)"
 fi
+named_for_slug() {   # stdin: paths; $1 = 1 keeps those ending in _<slug>.md, 0 the rest
+    awk -v s="_$SLUG.md" -v keep="$1" 'NF {
+        hit = (length($0) >= length(s) && substr($0, length($0) - length(s) + 1) == s)
+        if (hit == keep) print }'
+}
 OURS="$OURS
-$(printf '%s\n' "$ELSEWHERE" | grep -F -- "$SLUG" || true)"
+$(printf '%s\n' "$ELSEWHERE" | named_for_slug 1)"
 OURS="$(printf '%s\n' "$OURS" | sed '/^$/d' | sort -u)"
-ELSEWHERE="$(printf '%s\n' "$ELSEWHERE" | sed '/^$/d' | grep -vF -- "$SLUG" | sort -u || true)"
+ELSEWHERE="$(printf '%s\n' "$ELSEWHERE" | named_for_slug 0 | sort -u)"
 if [ -n "$OURS" ]; then
     step "capture:" "found $(printf '%s\n' "$OURS" | paste -sd ' ' -)"
 else
@@ -158,7 +247,19 @@ else
     [ -z "$ELSEWHERE" ] || step "" "(newer session files from other work, not counted: $(printf '%s\n' "$ELSEWHERE" | paste -sd ' ' -))"
 fi
 
-step "teardown:" "remove $WT, delete branch $BRANCH (local only, nothing is pushed)"
+step "teardown:" "unlink Fort links, remove $WT, delete branch $BRANCH (local only, nothing is pushed)"
+# the brief fort-spawn wrote (<git-common-dir>/fort-spawn/<slug>-YYYYmmdd-HHMMSS.md);
+# it can hold conversation context, so it goes with the desk
+BRIEF_DIR="$(cd "$FORT_ROOT" && cd "$(git rev-parse --git-common-dir)" && pwd -P)/fort-spawn"
+BRIEFS=""
+for f in "$BRIEF_DIR/$SLUG"-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9].md; do
+    [ -f "$f" ] && BRIEFS="$BRIEFS
+$f"
+done
+BRIEFS="$(printf '%s\n' "$BRIEFS" | sed '/^$/d')"
+if [ -n "$BRIEFS" ]; then
+    step "teardown:" "delete brief(s): $(printf '%s\n' "$BRIEFS" | while IFS= read -r f; do printf '%s ' "${f##*/}"; done)"
+fi
 
 if [ "$YES" != 1 ]; then
     if [ "$BLOCK" != 0 ]; then
@@ -174,9 +275,18 @@ fi
 if [ "$HAVE_BRANCH" = 1 ] && [ "$N" != 0 ]; then
     # --ff overrides a merge.ff=only config so a diverged branch gets a merge
     # commit; never --force, never a rebase of shared history
-    if ! git -C "$FORT_ROOT" merge --ff --no-edit -m "Merge $BRANCH (fort-despawn $SLUG)" "$BRANCH" >/dev/null 2>&1; then
-        git -C "$FORT_ROOT" merge --abort >/dev/null 2>&1 || true
-        die 5 "merging $BRANCH into $BASE failed and was aborted. Nothing was removed."
+    had_merge_head=0
+    git -C "$FORT_ROOT" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 && had_merge_head=1
+    [ "$had_merge_head" = 0 ] || die 1 "$FORT_ROOT has an unfinished merge (MERGE_HEAD). Nothing was changed."
+    ERR="$(mktemp "${TMPDIR:-/tmp}/fort-despawn.XXXXXX")"; trap 'rm -f "$ERR"' EXIT
+    if ! git -C "$FORT_ROOT" merge --ff --no-edit -m "Merge $BRANCH (fort-despawn $SLUG)" "$BRANCH" >"$ERR" 2>&1; then
+        sed 's/^/  git: /' "$ERR" >&2
+        # abort only the merge we started: no MERGE_HEAD before, one now
+        if git -C "$FORT_ROOT" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
+            git -C "$FORT_ROOT" merge --abort >/dev/null 2>&1 || true
+            die 5 "merging $BRANCH into $BASE failed (git output above); the merge was aborted. Nothing was removed."
+        fi
+        die 5 "merging $BRANCH into $BASE failed before it started (git output above); nothing to abort. Nothing was removed."
     fi
     step "merge:" "$BRANCH merged into $BASE ($(git -C "$FORT_ROOT" rev-parse --short HEAD))"
 fi
@@ -185,9 +295,16 @@ if [ "$HAVE_BRANCH" = 1 ] && ! git -C "$FORT_ROOT" merge-base --is-ancestor "$BR
 fi
 
 if [ "$HAVE_WT" = 1 ]; then
+    # unlink the Fort links first (rm on the link itself, never a trailing
+    # slash), so nothing below can ever walk into $FORT_ROOT through them
+    UNLINKED=""
+    for P in $FORT_LINKS; do
+        if is_fort_link "$P"; then rm -f "$WT/$P"; UNLINKED="$UNLINKED $P"; fi
+    done
+    [ -z "$UNLINKED" ] || step "teardown:" "unlinked Fort links:$UNLINKED"
     # no --force: git itself refuses if anything uncommitted appeared since the check
     git -C "$FORT_ROOT" worktree remove "$WT" \
-        || die 6 "git worktree remove $WT failed; the worktree is still on disk. The merge (if any) stands."
+        || die 6 "git worktree remove $WT failed; the worktree is still on disk (its Fort links are already unlinked). The merge (if any) stands."
     step "teardown:" "removed $WT"
 fi
 if [ "$HAVE_BRANCH" = 1 ]; then
@@ -195,6 +312,12 @@ if [ "$HAVE_BRANCH" = 1 ]; then
     git -C "$FORT_ROOT" branch -d "$BRANCH" >/dev/null \
         || die 6 "git branch -d $BRANCH refused; the branch is kept."
     step "teardown:" "deleted branch $BRANCH"
+fi
+
+if [ -n "$BRIEFS" ]; then
+    printf '%s\n' "$BRIEFS" | while IFS= read -r f; do rm -f "$f"; done
+    rmdir "$BRIEF_DIR" 2>/dev/null || true
+    step "teardown:" "deleted brief(s) for $SLUG"
 fi
 
 MERGED="nothing new"; [ "$N" != 0 ] && MERGED="$N commit(s)"

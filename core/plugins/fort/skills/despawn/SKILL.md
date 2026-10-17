@@ -31,7 +31,8 @@ destructive, and reports.
 - As a checkpoint. Run `/distill` or `/narrate` instead; they leave everything
   in place.
 - While the desk's session is still running. The script refuses when any
-  process has its working directory inside the worktree.
+  process has its working directory inside the worktree (checked with `lsof`,
+  or `/proc` on Linux; with neither, it refuses until `--force`).
 - From a shell inside the worktree being removed. The script refuses that too;
   run it from the repo root.
 
@@ -60,7 +61,12 @@ destructive, and reports.
    - Uncommitted changes (exit 3): commit them in the worktree, or discard by
      hand only when the user says they are junk.
    - Live process (exit 2): the user exits that session.
-   - Default branch not checked out at the repo root (exit 1): check it out there.
+   - No way to check for live processes (exit 2, "no lsof and no /proc"):
+     install `lsof`, or have the user confirm every session in the desk is
+     closed and re-run with `--force`. `--force` skips only that one check.
+   - Default branch not checked out at the repo root, or a merge, cherry-pick,
+     revert, rebase or bisect half done there (exit 1): the user finishes or
+     aborts it. Never abort the user's operation yourself.
    - Conflict predicted (exit 5): merge the default branch into the desk
      inside the worktree, resolve, commit, re-run the dry run.
 
@@ -73,9 +79,12 @@ destructive, and reports.
 
    The script re-checks every guard, merges with `git merge --ff` (a merge
    commit when the branches diverged, never a force or a rebase), confirms the
-   branch is contained in the default branch, removes the worktree with plain
-   `git worktree remove` and deletes the branch with `git branch -d`. A failed
-   merge is aborted and nothing is removed.
+   branch is contained in the default branch, deletes the desk's brief file
+   from `.git/fort-spawn/` (the dry run lists it), unlinks the Fort symlinks
+   `/spawn` put in the desk (their targets are untouched), removes the
+   worktree with plain `git worktree remove` and deletes the branch with
+   `git branch -d`. A merge the script started and that fails is aborted, git's
+   own output is printed, and nothing is removed.
 
 5. **Report the `done:` line verbatim.** Nothing is pushed; say so if the
    user expects the merge on a remote.
@@ -85,8 +94,8 @@ destructive, and reports.
 | rc | meaning | what to do |
 |----|---------|------------|
 | 0 | done, or a clean dry run | report |
-| 1 | usage, unknown slug, shell inside the worktree, wrong branch at root | fix and re-run |
-| 2 | a process still has its cwd in the worktree | exit that session |
+| 1 | usage, unknown slug, shell inside the worktree, wrong branch or unfinished operation at root | fix and re-run |
+| 2 | a process still has its cwd in the worktree, or no way to check | exit that session; `--force` only when there is no checker |
 | 3 | uncommitted changes in the worktree | commit, or discard on the user's say-so |
 | 5 | merge conflict or failed merge (aborted) | resolve in the worktree |
 | 6 | teardown incomplete | read the message; the merge stands, the worktree or branch may remain |
