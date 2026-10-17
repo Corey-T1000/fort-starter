@@ -814,7 +814,11 @@ main() {
   echo ""
   echo -e "  ${CASTLE} ${BOLD}Fort Setup${NC} ${DIM}v${VERSION}${NC}"
 
-  check_prereqs
+  if [[ "${FORT_SKIP_PREREQS:-}" == 1 ]]; then
+    warn "Skipping the prerequisite check (FORT_SKIP_PREREQS=1)"
+  else
+    check_prereqs
+  fi
 
   # Check for existing fort files
   if [[ -f "$FORT_ROOT/CLAUDE.md" ]] || [[ -d "$FORT_ROOT/.claude/hooks" ]]; then

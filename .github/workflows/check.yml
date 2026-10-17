@@ -1,0 +1,70 @@
+name: check
+
+# Fresh-clone smoke test: the template must assemble and pass its own checks.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Shell syntax (bash 3.2, the macOS default)
+        run: |
+          set -e
+          for f in fort-bootstrap core/hooks/*.sh core/bin/*; do
+            head -1 "$f" | grep -qE '^#!.*(bash|sh)' || continue
+            /bin/bash -n "$f"
+          done
+
+      - name: Python syntax
+        run: |
+          for f in core/bin/*; do
+            head -1 "$f" | grep -q python || continue
+            python3 -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "$f"
+          done
+
+      - name: Settings and manifests are valid JSON
+        run: |
+          for f in profiles/*/settings.json core/plugins/*/.claude-plugin/plugin.json; do
+            python3 -m json.tool "$f" >/dev/null
+          done
+
+      - name: Bootstrap into a fresh copy (path with a space)
+        run: |
+          set -e
+          dest="$RUNNER_TEMP/fort smoke"
+          mkdir -p "$dest"
+          rsync -a --exclude .git ./ "$dest/"
+          cd "$dest"
+          FORT_SKIP_PREREQS=1 ./fort-bootstrap --yes --profile=vanilla </dev/null
+          shipped=$( (ls -d core/plugins/*/skills/*/ profiles/vanilla/skills/*/) | xargs -n1 basename | sort -u | wc -l | tr -d ' ')
+          installed=$(ls .claude/skills/*/SKILL.md | wc -l | tr -d ' ')
+          echo "skills shipped=$shipped installed=$installed"
+          test "$shipped" = "$installed"
+          python3 - <<'PY'
+          import json, os, shlex
+          d = json.load(open(".claude/settings.local.json"))
+          cmds = {shlex.split(h["command"])[0] for a in d["hooks"].values() for m in a for h in m["hooks"]}
+          missing = [c for c in cmds if not os.access(c, os.X_OK)]
+          assert not missing, missing
+          print(f"{len(cmds)} hook commands resolve")
+          PY
+          FORT_ROOT="$PWD" ./bin/fort-drift
+
+      - name: Skill layout audit (/skill-health step 1)
+        run: |
+          python3 - <<'PY'
+          s = open("core/plugins/fort/skills/skill-health/SKILL.md").read()
+          i = s.index("## Step 1"); b = s.index("```bash", i) + 8; e = s.index("```", b)
+          open("/tmp/layout.sh", "w").write(s[b:e])
+          PY
+          out=$(bash /tmp/layout.sh </dev/null)
+          echo "$out"
+          ! echo "$out" | grep -q '🔴'
