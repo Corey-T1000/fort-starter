@@ -6,6 +6,8 @@ A template for building a persistent AI workspace on top of [Claude Code](https:
 
 This was extracted from a personal setup that's been in daily use since December 2025. The patterns here aren't theoretical -- they've survived ten months of real work across dozens of projects, usually with several agent sessions running side by side.
 
+> **New in October 2026:** run several sessions at once with `/spawn`, the Fort Board sidebar and quick replies. See [Running several sessions at once](#running-several-sessions-at-once) and the [changelog](CHANGELOG.md).
+
 > _Heads up: this is a WIP and an ever-evolving project. The setup it was extracted from changes weekly, and this template tracks along with it. Pin a commit if you need stability._
 
 ---

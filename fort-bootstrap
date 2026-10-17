@@ -539,6 +539,10 @@ assemble_fort() {
     rm -f "$FORT_ROOT/.claude/commands/$name.md"
     skill_count=$((skill_count + 1))
   done < <(shipped_skills "$profile")
+  # Older installs also copied the commands/ README in as if it were a command.
+  if head -1 "$FORT_ROOT/.claude/commands/README.md" 2>/dev/null | grep -q '^# profiles/.*/commands/'; then
+    rm -f "$FORT_ROOT/.claude/commands/README.md"
+  fi
   rmdir "$FORT_ROOT/.claude/commands" 2>/dev/null || true
   # A skill disabled after it was installed: remove our copy (only names the template ships).
   local marker
