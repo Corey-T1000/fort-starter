@@ -27,7 +27,7 @@ Capture what matters from this session into the right JD-numbered memory files.
 **Prompt template for the sub-agent:**
 ```
 You are running /distill. Read your full instructions from:
-${FORT_ROOT}/plugins/fort/skills/distill.md
+${FORT_ROOT}/.claude/skills/distill/SKILL.md
 
 ## Session Summary
 [paste summary here]

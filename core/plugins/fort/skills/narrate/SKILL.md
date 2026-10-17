@@ -46,7 +46,7 @@ Always run `/narrate` as a fire-and-forget background sub-agent, same as `/disti
 **Prompt template for the sub-agent:**
 ```
 You are running /narrate. Read your full instructions from:
-${FORT_ROOT}/core/plugins/fort/skills/narrate.md
+${FORT_ROOT}/.claude/skills/narrate/SKILL.md
 
 Transcript: <absolute path to session JSONL>
 

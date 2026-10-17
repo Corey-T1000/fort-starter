@@ -24,7 +24,7 @@ FORT_PROJECTS="$HOME/.claude/projects/-$(echo "$FORT_ROOT" | sed 's|^/||; s|/|-|
 
 MEMORY_DIR="${FORT_PROJECTS}/memory"
 MARKER="${MEMORY_DIR}/.distill-ran"
-NOISE_PATTERN='\.claude/|memory/|\.distill|logs/|node_modules/|nano-banana-renders/|parking-lot\.md|plugins/fort/skills/distill\.md|projects/home-bud/'
+NOISE_PATTERN='\.claude/|memory/|\.distill|logs/|node_modules/|nano-banana-renders/|parking-lot\.md|skills/distill/SKILL\.md|projects/home-bud/'
 
 # Duration gate: skip trivial sessions under 2 minutes
 START_TIME_FILE="${MEMORY_DIR}/.session/start-time"
@@ -64,11 +64,11 @@ fi
 FILE_COUNT=$(echo "$NEW_FILES" | grep -c '.' 2>/dev/null || echo "0")
 
 # Verify distill skill is actually loadable before telling Claude to run it
-DISTILL_SKILL="$FORT_ROOT/plugins/fort/skills/distill.md"
+DISTILL_SKILL="$FORT_ROOT/.claude/skills/distill/SKILL.md"
 if [ ! -r "$DISTILL_SKILL" ]; then
     echo "{
       \"decision\": \"block\",
-      \"reason\": \"🔴 DISTILL SKILL IS BROKEN — file missing or unreadable at plugins/fort/skills/distill.md. ${FILE_COUNT} files modified. To close anyway: bash .claude/hooks/emergency-distill.sh\"
+      \"reason\": \"🔴 DISTILL SKILL IS BROKEN — file missing or unreadable at .claude/skills/distill/SKILL.md. ${FILE_COUNT} files modified. To close anyway: bash .claude/hooks/emergency-distill.sh\"
     }"
     exit 0
 fi

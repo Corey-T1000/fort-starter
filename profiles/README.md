@@ -20,14 +20,15 @@ Each profile directory contains some subset of:
 |------|---------|
 | `CLAUDE.md` | Profile-specific CLAUDE overlay. Concatenated after `core/CLAUDE.base.md` to produce the final `./CLAUDE.md`. |
 | `settings.json` | MCP servers, permissions, hook wiring. `__FORT_ROOT__` tokens are rewritten to absolute paths at install. |
-| `commands/` | Slash command files installed to `.claude/commands/`. The profile decides which commands are exposed. |
+| `skills/` | Profile-only skills, one `<name>/SKILL.md` directory each. Installed to `.claude/skills/` alongside the core plugin skills; a same-named profile skill wins. |
+| `skills-disabled/` | Sentinel files matched by skill name. Any core skill with a matching marker is not installed. Opt-OUT model. |
 | `plugins/` | Profile-specific Claude Code plugins (additive to `core/plugins/`). Empty in vanilla — a drop-in extension point. |
 | `hooks-disabled/` | Sentinel files (matched by filename). Any `core/hooks/<name>.sh` with a matching marker is SKIPPED during install. Opt-OUT model. |
 
 ## Composition model
 
 - **Hooks**: opt-out (core ships all; profile lists ones to skip)
-- **Commands**: opt-in (profile lists exactly which slash commands to expose)
+- **Skills**: core plugin skills + profile skills all install to `.claude/skills/`; profile overrides by name, `skills-disabled/` opts out
 - **Plugins**: additive (core + profile both install)
 - **CLAUDE.md**: layered concatenation (base + profile)
 - **Rules / agents / bin scripts**: always installed from `core/`

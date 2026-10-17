@@ -30,11 +30,11 @@ if [ -z "$CHANGED" ]; then
 fi
 
 # Verify distill skill is actually loadable
-DISTILL_SKILL="$FORT_ROOT/plugins/fort/skills/distill.md"
+DISTILL_SKILL="$FORT_ROOT/.claude/skills/distill/SKILL.md"
 if [ ! -r "$DISTILL_SKILL" ]; then
     echo "{
       \"decision\": \"block\",
-      \"reason\": \"🔴 DISTILL SKILL IS BROKEN — file missing or unreadable at plugins/fort/skills/distill.md. To proceed anyway: bash .claude/hooks/emergency-distill.sh\"
+      \"reason\": \"🔴 DISTILL SKILL IS BROKEN — file missing or unreadable at .claude/skills/distill/SKILL.md. To proceed anyway: bash .claude/hooks/emergency-distill.sh\"
     }"
     exit 0
 fi

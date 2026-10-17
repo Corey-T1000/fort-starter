@@ -31,7 +31,7 @@ If user provides just a directory of files, auto-pair by name matching when poss
 
 ## Reference Template
 
-Working template lives at `plugins/fort-tools/skills/diff-view-references/template.html` — a single-file HTML scaffold with:
+Working template lives at `.claude/skills/diff-view/references/template.html` — a single-file HTML scaffold with:
 - Sticky-pill jump nav
 - Per-item card with LIVE (warm cream bg) | OURS (cool grey bg) flex columns
 - 12-color pastel palette for pair tinting (`data-pair` attr + CSS rules)
@@ -90,7 +90,7 @@ For each OURS block:
 
 ### 6. Render the template
 
-Take the template from `plugins/fort-tools/skills/diff-view-references/template.html` and populate it with the extracted + analyzed content. Each item becomes a `<section class="customer">` — the class name is historical; use it for any item type.
+Take the template from `.claude/skills/diff-view/references/template.html` and populate it with the extracted + analyzed content. Each item becomes a `<section class="customer">` — the class name is historical; use it for any item type.
 
 DO NOT redesign the CSS or layout. Keep:
 - Sticky jump nav
@@ -137,5 +137,5 @@ The HTML viewer should let a reviewer:
 
 ## File Locations
 
-- Skill: `plugins/fort-tools/skills/diff-view.md` (this file)
-- Template: `plugins/fort-tools/skills/diff-view-references/template.html`
+- Skill: `.claude/skills/diff-view/SKILL.md` (this file; source `core/plugins/fort-tools/skills/diff-view/`)
+- Template: `.claude/skills/diff-view/references/template.html`
