@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- fort-board-relay: types Fort Board quick replies into the asking terminal
+     (a cmux sidebar itself can't send text). fort-bootstrap fills in
+     __FORT_ROOT__ when it copies this to bin/. Install:
+     cp bin/com.fort.board-relay.plist ~/Library/LaunchAgents/ &&
+     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.fort.board-relay.plist -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.fort.board-relay</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__FORT_ROOT__/bin/fort-board-relay</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Applications/cmux.app/Contents/Resources/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:__FORT_ROOT__/bin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>__FORT_ROOT__/logs/fort-board-relay.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>__FORT_ROOT__/logs/fort-board-relay.log</string>
+</dict>
+</plist>

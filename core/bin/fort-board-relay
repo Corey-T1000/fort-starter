@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+"""fort-board-relay: deliver Fort Board quick replies to the asking terminal.
+
+A cmux custom sidebar can't type into a terminal (its action scopes are
+select/close/split/zoom/navigate/open URL; there is no send-text), but it can
+set a workspace description. So a quick-reply chip in core/cmux/fort-board.js
+writes a request onto the desk's description:
+
+  say:<surface-uuid>:<reply> · <rest of the description>
+
+and this relay polls the workspace list every second, strips the request first
+(so it fires once), checks the surface really belongs to that workspace, then
+types the reply and presses Enter with the cmux CLI. Only the board's fixed
+replies are relayed; anything else in a say: prefix is ignored.
+
+Run it as a launchd agent (bin/com.fort.board-relay.plist, see
+core/cmux/README.md) or by hand.
+
+Usage:
+  fort-board-relay              poll forever (1s)
+  fort-board-relay --once       one sweep, then exit
+  fort-board-relay --parse STR  print how a description would be read (JSON), no cmux calls
+"""
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+
+REPLIES = ("yes", "no")  # keep in sync with QUICK_REPLIES in core/cmux/fort-board.js
+SAY = re.compile(r"^say:([0-9A-Fa-f-]{36}):(%s)(?: · |$)" % "|".join(map(re.escape, REPLIES)))
+ENV = {**os.environ, "CMUX_QUIET": "1"}
+
+
+def parse(desc):
+    """(surface, reply, rest) for a relayable request, else None."""
+    m = SAY.match(desc or "")
+    if not m:
+        return None
+    return m.group(1).upper(), m.group(2), desc[m.end():]
+
+
+def cmux(*args, timeout=5):
+    try:
+        out = subprocess.run(["cmux", *args], capture_output=True, text=True, timeout=timeout, env=ENV)
+        return out.stdout if out.returncode == 0 else None
+    except Exception:
+        return None
+
+
+def surfaces_of(ws_id):
+    raw = cmux("rpc", "surface.list", json.dumps({"workspace_id": ws_id}))
+    try:
+        return {s["id"].upper() for s in json.loads(raw)["surfaces"]}
+    except Exception:
+        return set()
+
+
+def sweep():
+    raw = cmux("workspace", "list", "--json")
+    try:
+        workspaces = json.loads(raw)["workspaces"]
+    except Exception:
+        return
+    for w in workspaces:
+        req = parse(w.get("description") or "")
+        if not req:
+            continue
+        sid, reply, rest = req
+        # Strip first, so a failed send never repeats.
+        if rest:
+            cmux("workspace-action", "--workspace", w["id"], "--action", "set-description", "--description", rest)
+        else:
+            cmux("workspace-action", "--workspace", w["id"], "--action", "clear-description")
+        if sid not in surfaces_of(w["id"]):
+            continue
+        cmux("send", "--surface", sid, "--", reply)
+        cmux("send-key", "--surface", sid, "enter")
+
+
+def main():
+    args = sys.argv[1:]
+    if args[:1] == ["--parse"]:
+        req = parse(args[1] if len(args) > 1 else "")
+        print(json.dumps(None if req is None else {"surface": req[0], "reply": req[1], "rest": req[2]}))
+        return
+    if "--once" in args:
+        sweep()
+        return
+    while True:
+        # No cmux CLI on PATH (not installed, or launchd PATH too narrow): idle
+        # quietly instead of spawning a failing process every second.
+        if shutil.which("cmux") is None:
+            time.sleep(30)
+            continue
+        sweep()
+        time.sleep(1)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass

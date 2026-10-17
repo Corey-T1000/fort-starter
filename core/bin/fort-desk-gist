@@ -1,0 +1,319 @@
+#!/usr/bin/env python3
+"""Optional one-line desk gist + whose turn it is, for Fort Board.
+
+Run detached by .claude/hooks/desk-status.sh on Stop (inside cmux). Reads the
+Stop hook JSON on stdin, asks an Ollama-style /api/generate endpoint for
+{"gist", "turn", "ask"}, then republishes the workspace's cmux progress label
+as "<Turn> · <text>", where Turn is "Your move" | "Done" | "Stalled" |
+"Ready to close" and text is the ask (the question to answer) on Your move,
+else the gist. A Your move ask that a bare "yes" or "no" fully answers is
+published as "Your move?" so the board offers yes / no quick-reply chips; any
+other ask gets only ack. core/cmux/fort-board.js parses that label.
+
+Opt-in. Configure in .fort-env:
+  FORT_GIST_URL    e.g. http://localhost:11434/api/generate
+  FORT_GIST_MODEL  any small local model, e.g. llama3.2:3b
+Either one unset = no model call at all; the hook's plain label stays.
+Any error or timeout = exit 0, nothing published, plain label stays.
+
+Stale guard: desk-status.sh writes a fresh nonce to
+~/.cache/fort/gist-nonce/<workspace> (0700) on every state change. The label is
+only published when that file still holds FORT_GIST_NONCE, so a slow model call
+can never paint over a desk that has already started its next turn.
+
+Caches the result at ~/.cache/fort/gist/<session_id>.json for terminal readers.
+
+Dry run (no publish, prints JSON):  fort-desk-gist --dry-run <transcript.jsonl>
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+import urllib.request
+
+URL = os.environ.get("FORT_GIST_URL", "").strip()
+MODEL = os.environ.get("FORT_GIST_MODEL", "").strip()
+TIMEOUT = 30  # a cold local model load can take ~10s
+CACHE = os.path.expanduser("~/.cache/fort/gist")
+NONCE_DIR = os.path.expanduser("~/.cache/fort/gist-nonce")
+TURN_LABEL = {"you": "Your move", "done": "Done", "stalled": "Stalled", "ready": "Ready to close"}
+FORT_ROOT = os.environ.get("FORT_ROOT", os.path.expanduser("~/claudes-fort"))
+
+PROMPT = """You label a coding-assistant session for a one-line sidebar.
+Reply with JSON only: {{"gist": "...", "turn": "you|done|stalled", "ask": "...", "yesno": false}}
+
+gist: at most 55 characters, shaped "<topic>: <where it stands>".
+  topic = what the whole session is about, 1-4 words, from the FIRST request.
+  where it stands = the current state after the LAST reply, plain words,
+  lowercase, no trailing period. Never quote the reply's first sentence.
+turn:
+  "you" if the last reply asks the user a question, offers options, or waits
+    on their approval, pick, or a manual step.
+  "stalled" if the last reply says the work is blocked, failed, or stopped
+    before the request was finished.
+  "done" otherwise (the request was completed and nothing is asked).
+ask: only when turn is "you": the one thing the user must answer or do, as a
+  short question or instruction, at most 55 characters, e.g. "build 1 and 2 now?"
+  or "paste the error output". Otherwise "".
+yesno: true only when turn is "you" and typing just "yes" or "no" would fully
+  answer the ask: an approval, a go-ahead, a confirm, or a yes/no check like
+  "did the build pass on your machine?". false for an open question, a pick
+  between options or alternatives, a request for details, or a manual step.
+
+Examples:
+{{"gist": "Login form: validation fixed, tests pass", "turn": "done", "ask": "", "yesno": false}}
+{{"gist": "API refactor: waiting on go-ahead", "turn": "you", "ask": "split the client into two modules now?", "yesno": true}}
+{{"gist": "Logo refs: three directions drafted", "turn": "you", "ask": "which direction, A, B or C?", "yesno": false}}
+{{"gist": "Test fixtures: need sample data", "turn": "you", "ask": "paste a sample API response", "yesno": false}}
+{{"gist": "Staging deploy: blocked on ssh auth", "turn": "stalled", "ask": "", "yesno": false}}
+
+FIRST request:
+{first}
+
+LAST request:
+{last}
+
+LAST reply (tail):
+{reply}
+"""
+
+
+def tail_lines(p, n=600, chunk=1 << 20, cap=16 << 20):
+    try:
+        with open(p, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            pos, buf = size, b""
+            while pos > 0 and buf.count(b"\n") <= n and size - pos < cap:
+                step = min(chunk, pos)
+                pos -= step
+                f.seek(pos)
+                buf = f.read(step) + buf
+    except Exception:
+        return []
+    lines = buf.split(b"\n")
+    if pos > 0:
+        lines = lines[1:]
+    return [l.decode("utf-8", "replace") for l in lines[-n:] if l.strip()]
+
+
+def head_lines(p, n=300):
+    out = []
+    try:
+        with open(p, "rb") as f:
+            for raw in f:
+                out.append(raw.decode("utf-8", "replace"))
+                if len(out) >= n:
+                    break
+    except Exception:
+        pass
+    return out
+
+
+def human_text(d):
+    """Text of a real typed prompt, or '' for tool results, meta and payloads."""
+    if d.get("type") != "user" or d.get("isMeta") or d.get("isSidechain"):
+        return ""
+    c = (d.get("message") or {}).get("content")
+    if isinstance(c, list):
+        if any(isinstance(x, dict) and x.get("type") == "tool_result" for x in c):
+            return ""
+        c = "\n".join(x.get("text", "") for x in c if isinstance(x, dict) and x.get("type") == "text")
+    if not isinstance(c, str):
+        return ""
+    t = c.strip()
+    if not t or t.startswith("<") or t.startswith("Caveat:") or t.startswith("[Request interrupted"):
+        return ""
+    return t
+
+
+def assistant_text(d):
+    if d.get("type") != "assistant":
+        return ""
+    parts = [c.get("text", "") for c in (d.get("message") or {}).get("content") or []
+             if isinstance(c, dict) and c.get("type") == "text"]
+    return "\n".join(p for p in parts if p.strip())
+
+
+def parse(lines):
+    out = []
+    for line in lines:
+        try:
+            out.append(json.loads(line))
+        except Exception:
+            pass
+    return out
+
+
+def iso_epoch(ts):
+    try:
+        from datetime import datetime
+        return int(datetime.fromisoformat(str(ts).replace("Z", "+00:00")).timestamp())
+    except Exception:
+        return 0
+
+
+def gather(path, reply):
+    head = parse(head_lines(path))
+    tail = parse(tail_lines(path))
+    first = next((t for t in map(human_text, head) if t), "")
+    # Last substantive request: "go" / "do it" alone summarize to nothing, so
+    # walk back to the last prompt with some content and keep the short ones.
+    recent = [t for t in map(human_text, tail) if t]
+    last_ts = 0
+    for d in reversed(tail):
+        if human_text(d):
+            last_ts = iso_epoch(d.get("timestamp"))
+            break
+    last = ""
+    for t in reversed(recent):
+        last = t + ("\n" + last if last else "")
+        if len(t) > 25:
+            break
+    if not reply:
+        for d in reversed(tail):
+            reply = assistant_text(d)
+            if reply:
+                break
+    if not first and recent:
+        first = recent[0]
+    return first[:600], last[-700:], reply[-1400:], last_ts
+
+
+def captured_after(sid, since):
+    """True when a /narrate file for this session landed after its last prompt."""
+    if not re.fullmatch(r"[A-Za-z0-9-]+", sid or "") or not since:
+        return False
+    mem = os.path.join(FORT_ROOT, "memory")
+    needle = "originSessionId: " + sid
+    try:
+        names = [n for n in os.listdir(mem) if n.startswith("session_") and n.endswith(".md")]
+    except Exception:
+        return False
+    for n in names:
+        p = os.path.join(mem, n)
+        try:
+            if os.path.getmtime(p) > since and needle in open(p, errors="replace").read(4096):
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def heuristic_turn(reply):
+    lines = [l.strip(" *_`>") for l in reply.strip().splitlines() if l.strip()]
+    return "you" if lines and lines[-1].endswith("?") else "done"
+
+
+def ask_model(first, last, reply):
+    body = json.dumps({
+        "model": MODEL,
+        "prompt": PROMPT.format(first=first or "(unknown)", last=last or "(unknown)", reply=reply or "(none)"),
+        "format": "json",
+        "stream": False,
+        "think": False,
+        "keep_alive": "60m",
+        "options": {"temperature": 0.2, "num_predict": 100},
+    }).encode()
+    req = urllib.request.Request(URL, data=body, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+        out = json.loads(json.loads(r.read()).get("response") or "{}")
+    clean = lambda v: re.sub(r"\s+", " ", str(v or "")).replace("·", "-").strip(" .")
+    gist, ask = clean(out.get("gist")), clean(out.get("ask"))
+    turn = str(out.get("turn") or "").lower().strip()
+    if turn not in TURN_LABEL:
+        turn = ""
+    cut = lambda v: v[:69].rstrip() + "…" if len(v) > 70 else v
+    yesno = turn == "you" and out.get("yesno") is True and plain_yesno(ask)
+    return cut(gist), turn, cut(ask) if turn == "you" else "", yesno
+
+
+def plain_yesno(ask):
+    """Guard on the model's yesno: an either/or or a wh-question never is one."""
+    t = ask.lower().strip()
+    if not t.endswith("?") or re.search(r"\bor\b", t):
+        return False
+    return not re.match(r"(what|which|how|where|why|who|when)\b", t.rsplit(": ", 1)[-1])
+
+
+def main():
+    args = sys.argv[1:]
+    dry = "--dry-run" in args
+    if not URL or not MODEL:
+        # Default install: no endpoint, no model call. The hook's plain label stays.
+        if dry:
+            print(json.dumps({"skipped": "FORT_GIST_URL and FORT_GIST_MODEL not both set; no model call"}))
+        return
+    if dry:
+        rest = [a for a in args if a != "--dry-run"]
+        if not rest:
+            print(json.dumps({"error": "usage: fort-desk-gist --dry-run <transcript.jsonl>"}))
+            return
+        path = rest[0]
+        hook = {"transcript_path": path, "session_id": os.path.basename(path).rsplit(".", 1)[0]}
+    else:
+        try:
+            hook = json.loads(sys.stdin.read())
+        except Exception:
+            return
+        path = hook.get("transcript_path") or ""
+    if not path:
+        return
+    first, last, reply, last_ts = gather(path, hook.get("last_assistant_message") or "")
+    sid = str(hook.get("session_id") or "")
+    t0 = time.time()
+    try:
+        gist, turn, ask, yesno = ask_model(first, last, reply)
+    except Exception as e:
+        if dry:
+            print(json.dumps({"error": str(e)}))
+        return
+    turn = turn or heuristic_turn(reply)
+    # Finished and captured since the last prompt: nothing left but closing it.
+    if turn == "done" and captured_after(sid, last_ts):
+        turn = "ready"
+    if dry:
+        print(json.dumps({"gist": gist, "turn": turn, "ask": ask, "yesno": yesno, "secs": round(time.time() - t0, 1)}))
+        return
+    if not gist:
+        return
+
+    if re.fullmatch(r"[A-Za-z0-9-]+", sid):
+        try:
+            os.makedirs(CACHE, mode=0o700, exist_ok=True)
+            tmp = os.path.join(CACHE, sid + ".tmp")
+            with open(tmp, "w") as f:
+                json.dump({"gist": gist, "turn": turn, "ask": ask, "yesno": yesno, "ts": int(time.time()),
+                           "last_prompt": last_ts, "cwd": hook.get("cwd") or "",
+                           "workspace": os.environ.get("CMUX_WORKSPACE_ID", "")}, f)
+            os.replace(tmp, os.path.join(CACHE, sid + ".json"))
+        except Exception:
+            pass
+
+    ws = os.environ.get("CMUX_WORKSPACE_ID", "")
+    nonce = os.environ.get("FORT_GIST_NONCE", "")
+    if not ws or not nonce or not re.fullmatch(r"[A-Za-z0-9-]+", ws):
+        return
+    try:
+        fd = os.open(os.path.join(NONCE_DIR, ws), os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd) as f:
+            if f.read().strip() != nonce:
+                return  # the desk moved on while the model ran
+    except Exception:
+        return
+    ctx = os.environ.get("FORT_CTX", "")
+    if not re.fullmatch(r"[0-9.]+", ctx):
+        ctx = "0"
+    label = TURN_LABEL[turn] + ("?" if turn == "you" and yesno else "") + " · " + (ask or gist)
+    subprocess.run(["cmux", "set-progress", ctx, "--label", label, "--workspace", ws],
+                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:
+        pass
+    sys.exit(0)

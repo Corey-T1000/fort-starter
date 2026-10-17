@@ -76,7 +76,7 @@
 
 # FORT_MAIL_API_KEY — bearer token sent as `Authorization: Bearer <key>` when
 # calling the Fort Mail API. Used by core/hooks/fort-register.sh and the
-# /pulse + /assistant skills (profiles/vanilla/commands/) to read agent inboxes.
+# /pulse + /assistant skills (profiles/vanilla/skills/) to read agent inboxes.
 # Leave unset if your Fort Mail instance doesn't require auth.
 # FORT_MAIL_API_KEY=""
 
@@ -94,3 +94,11 @@
 # FORT_PRINTER_IP — IP/hostname of a receipt printer exposing the daily-summary
 # endpoint at :9101. Used by core/bin/daily-receipt. Defaults to 127.0.0.1.
 # FORT_PRINTER_IP="127.0.0.1"
+
+# FORT_GIST_URL / FORT_GIST_MODEL — optional desk gists for the cmux Fort
+# Board (core/cmux/README.md). When BOTH are set, core/bin/fort-desk-gist asks
+# this Ollama-style /api/generate endpoint for a one-line "<topic>: <where it
+# stands>" label after each Claude turn. Unset (the default) = no model call;
+# the board shows the plain label from .claude/hooks/desk-status.sh instead.
+# FORT_GIST_URL="http://localhost:11434/api/generate"
+# FORT_GIST_MODEL="llama3.2:3b"
