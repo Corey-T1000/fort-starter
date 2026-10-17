@@ -1,4 +1,7 @@
 {
+  "env": {
+    "FORT_ROOT": "__FORT_ROOT__"
+  },
   "permissions": {
     "allow": [
       "Bash(git status:*)",
@@ -30,7 +33,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${FORT_ROOT}/core/hooks/subagent-auto-approve.sh",
+            "command": "__FORT_ROOT__/.claude/hooks/subagent-auto-approve.sh",
             "timeout": 3000,
             "statusMessage": "Checking subagent permissions..."
           }
@@ -41,19 +44,19 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${FORT_ROOT}/core/hooks/guard-secrets.sh",
+            "command": "__FORT_ROOT__/.claude/hooks/guard-secrets.sh",
             "timeout": 5000,
             "statusMessage": "Checking for hardcoded secrets..."
           },
           {
             "type": "command",
-            "command": "${FORT_ROOT}/core/hooks/guard-env-files.sh",
+            "command": "__FORT_ROOT__/.claude/hooks/guard-env-files.sh",
             "timeout": 5000,
             "statusMessage": "Checking for sensitive file writes..."
           },
           {
             "type": "command",
-            "command": "${FORT_ROOT}/core/hooks/guard-main-worktree.sh",
+            "command": "__FORT_ROOT__/.claude/hooks/guard-main-worktree.sh",
             "timeout": 5000,
             "statusMessage": "Checking main-worktree edit guardrail..."
           }
@@ -64,55 +67,55 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${FORT_ROOT}/core/hooks/guard-git-add.sh",
+            "command": "__FORT_ROOT__/.claude/hooks/guard-git-add.sh",
             "timeout": 5000,
             "statusMessage": "Checking git add scope..."
           },
           {
             "type": "command",
-            "command": "${FORT_ROOT}/core/hooks/guard-deploy.sh",
+            "command": "__FORT_ROOT__/.claude/hooks/guard-deploy.sh",
             "timeout": 5000,
             "statusMessage": "Checking deploy safety..."
           },
           {
             "type": "command",
-            "command": "${FORT_ROOT}/core/hooks/enforce-draft-pr.sh",
+            "command": "__FORT_ROOT__/.claude/hooks/enforce-draft-pr.sh",
             "timeout": 5000,
             "statusMessage": "Ensuring PR is created as draft..."
           },
           {
             "type": "command",
-            "command": "${FORT_ROOT}/core/hooks/redact-secrets-bash.sh",
+            "command": "__FORT_ROOT__/.claude/hooks/redact-secrets-bash.sh",
             "timeout": 5000,
             "statusMessage": "Checking for literal secrets in command..."
           },
           {
             "type": "command",
-            "command": "${FORT_ROOT}/core/hooks/inject-dry-run.sh",
+            "command": "__FORT_ROOT__/.claude/hooks/inject-dry-run.sh",
             "timeout": 5000,
             "statusMessage": "Checking rsync for dry-run flag..."
           },
           {
             "type": "command",
-            "command": "${FORT_ROOT}/core/hooks/format-commit-msg.sh",
+            "command": "__FORT_ROOT__/.claude/hooks/format-commit-msg.sh",
             "timeout": 5000,
             "statusMessage": "Checking commit message format..."
           },
           {
             "type": "command",
-            "command": "${FORT_ROOT}/core/hooks/guard-pkg-install.sh",
+            "command": "__FORT_ROOT__/.claude/hooks/guard-pkg-install.sh",
             "timeout": 5000,
             "statusMessage": "Checking package install safety..."
           },
           {
             "type": "command",
-            "command": "${FORT_ROOT}/core/hooks/guard-push-rebase.sh",
+            "command": "__FORT_ROOT__/.claude/hooks/guard-push-rebase.sh",
             "timeout": 10000,
             "statusMessage": "Checking if branch needs rebase before push..."
           },
           {
             "type": "command",
-            "command": "${FORT_ROOT}/core/hooks/guard-push-scope.sh",
+            "command": "__FORT_ROOT__/.claude/hooks/guard-push-scope.sh",
             "timeout": 5000,
             "statusMessage": "Checking push scope..."
           }
@@ -125,14 +128,14 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${FORT_ROOT}/core/hooks/async-test-runner.sh",
+            "command": "__FORT_ROOT__/.claude/hooks/async-test-runner.sh",
             "timeout": 60000,
             "statusMessage": "Running tests in background...",
             "async": true
           },
           {
             "type": "command",
-            "command": "${FORT_ROOT}/core/hooks/auto-commit-session-outputs.sh",
+            "command": "__FORT_ROOT__/.claude/hooks/auto-commit-session-outputs.sh",
             "timeout": 10000
           }
         ]
@@ -143,25 +146,25 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${FORT_ROOT}/core/hooks/fort-register.sh",
+            "command": "__FORT_ROOT__/.claude/hooks/fort-register.sh",
             "timeout": 10000,
             "statusMessage": "Registering with Fort Mail..."
           },
           {
             "type": "command",
-            "command": "${FORT_ROOT}/core/hooks/fort-memory-start.sh",
+            "command": "__FORT_ROOT__/.claude/hooks/fort-memory-start.sh",
             "timeout": 15000,
             "statusMessage": "Setting Fort Memory session marker..."
           },
           {
             "type": "command",
-            "command": "${FORT_ROOT}/core/hooks/scrub-allow-list.sh",
+            "command": "__FORT_ROOT__/.claude/hooks/scrub-allow-list.sh",
             "timeout": 5000,
             "statusMessage": "Scrubbing credentials from allow list..."
           },
           {
             "type": "command",
-            "command": "${FORT_ROOT}/core/hooks/startup-skill-health.sh",
+            "command": "__FORT_ROOT__/.claude/hooks/startup-skill-health.sh",
             "timeout": 3000,
             "statusMessage": "Validating critical skills..."
           }
@@ -173,7 +176,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${FORT_ROOT}/core/hooks/fort-memory-end.sh",
+            "command": "__FORT_ROOT__/.claude/hooks/fort-memory-end.sh",
             "timeout": 15000,
             "statusMessage": "Writing session to Fort Memory..."
           }
@@ -185,13 +188,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${FORT_ROOT}/core/hooks/precompact-distill.sh",
+            "command": "__FORT_ROOT__/.claude/hooks/precompact-distill.sh",
             "timeout": 15000,
             "statusMessage": "Checking for undistilled learnings..."
           },
           {
             "type": "command",
-            "command": "${FORT_ROOT}/core/hooks/precompact-extract.sh",
+            "command": "__FORT_ROOT__/.claude/hooks/precompact-extract.sh",
             "timeout": 10000,
             "statusMessage": "Extracting decisions before compaction..."
           }
@@ -203,21 +206,60 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${FORT_ROOT}/core/hooks/stop-no-todos.sh",
+            "command": "__FORT_ROOT__/.claude/hooks/stop-no-todos.sh",
             "timeout": 10000,
             "statusMessage": "Checking for leftover TODOs..."
           },
           {
             "type": "command",
-            "command": "${FORT_ROOT}/core/hooks/stop-distill-reminder.sh",
+            "command": "__FORT_ROOT__/.claude/hooks/stop-distill-reminder.sh",
             "timeout": 5000,
             "statusMessage": "Checking for uncaptured learnings..."
           },
           {
             "type": "command",
-            "command": "${FORT_ROOT}/core/hooks/stop-lint-check.sh",
+            "command": "__FORT_ROOT__/.claude/hooks/stop-lint-check.sh",
             "timeout": 5000,
             "statusMessage": "Running stop-lint-check..."
+          },
+          {
+            "type": "command",
+            "command": "__FORT_ROOT__/.claude/hooks/desk-status.sh done",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__FORT_ROOT__/.claude/hooks/desk-status.sh working",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__FORT_ROOT__/.claude/hooks/desk-status.sh blocked",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "permission_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__FORT_ROOT__/.claude/hooks/desk-status.sh blocked",
+            "timeout": 10
           }
         ]
       }
