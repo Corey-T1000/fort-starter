@@ -146,20 +146,27 @@ echo "fort-spawn: worktree $WT on $BRANCH (off $BASE)"
 # fort-bootstrap writes these as untracked files, so a fresh worktree has none
 # of them: no settings (hooks, env), skills, rules, agents or bin/. Symlink each
 # one that exists in $FORT_ROOT, is not tracked on $BASE, and is not already in
-# the worktree. info/exclude is shared by every worktree, so listing the paths
-# there keeps the desk's `git status` clean. Keep in sync with fort-despawn.
-FORT_LINKS=".claude/settings.local.json .claude/hooks .claude/skills .claude/rules .claude/agents .claude/commands bin .fort-env CLAUDE.md"
+# the worktree. Rules and CLAUDE.md are COPIED instead: Claude Code treats
+# instruction files that resolve outside the project as external imports and
+# asks about them in every new desk. info/exclude is shared by every worktree,
+# so listing the paths there keeps the desk's `git status` clean.
+# Keep in sync with fort-despawn.
+FORT_LINKS=".claude/settings.local.json .claude/hooks .claude/skills .claude/agents .claude/commands bin .fort-env"
+FORT_COPIES=".claude/rules CLAUDE.md"
 LINKED=""
-for P in $FORT_LINKS; do
+for P in $FORT_LINKS $FORT_COPIES; do
     [ -e "$FORT_ROOT/$P" ] || continue
     [ -z "$(git -C "$FORT_ROOT" ls-tree -r --name-only "$BASE" -- "$P" | head -1)" ] || continue
     [ -e "$WT/$P" ] || [ -L "$WT/$P" ] && continue
     mkdir -p "$(dirname "$WT/$P")"
-    ln -s "$FORT_ROOT/$P" "$WT/$P"
+    case " $FORT_COPIES " in
+        *" $P "*) cp -R "$FORT_ROOT/$P" "$WT/$P" ;;
+        *) ln -s "$FORT_ROOT/$P" "$WT/$P" ;;
+    esac
     git -C "$WT" check-ignore -q -- "$P" || printf '/%s\n' "$P" >> "$EXCLUDE"
     LINKED="$LINKED $P"
 done
-[ -z "$LINKED" ] || echo "fort-spawn: linked from $FORT_ROOT:$LINKED"
+[ -z "$LINKED" ] || echo "fort-spawn: linked/copied from $FORT_ROOT:$LINKED"
 [ -z "$(git -C "$WT" status --porcelain)" ] \
     || echo "fort-spawn: note: the new worktree is not clean; check \`git -C $(printf '%q' "$WT") status\`." >&2
 

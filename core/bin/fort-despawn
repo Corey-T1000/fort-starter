@@ -97,15 +97,22 @@ BLOCK=0      # first blocker's exit code; the dry run reports them all
 block() { local rc="$1"; shift; step "blocker:" "$*"; [ "$BLOCK" != 0 ] || BLOCK="$rc"; }
 
 # The untracked Fort paths fort-spawn symlinks into a desk. Keep in sync.
-FORT_LINKS=".claude/settings.local.json .claude/hooks .claude/skills .claude/rules .claude/agents .claude/commands bin .fort-env CLAUDE.md"
+FORT_LINKS=".claude/settings.local.json .claude/hooks .claude/skills .claude/agents .claude/commands bin .fort-env"
 is_fort_link() {   # is_fort_link <path-in-worktree>: one of OUR links, pointing back at $FORT_ROOT
     local p
-    for p in $FORT_LINKS; do
+    for p in $FORT_LINKS $FORT_COPIES; do
         if [ "$1" = "$p" ] && [ -L "$WT/$p" ] && [ "$(readlink "$WT/$p")" = "$FORT_ROOT/$p" ]; then
             return 0
         fi
     done
     return 1
+}
+# Rules and CLAUDE.md are copies, not links (see fort-spawn). A copy is ours
+# only while it still matches the root; an edited copy is the user's work.
+FORT_COPIES=".claude/rules CLAUDE.md"
+is_fort_copy() {   # is_fort_copy <path>: an untouched copy fort-spawn made
+    [ -e "$WT/$1" ] && [ ! -L "$WT/$1" ] && [ -e "$FORT_ROOT/$1" ] \
+        && diff -rq "$WT/$1" "$FORT_ROOT/$1" >/dev/null 2>&1
 }
 
 echo "fort-despawn: $SLUG ($([ "$YES" = 1 ] && echo executing || echo dry run; true))"
@@ -126,11 +133,21 @@ if [ "$HAVE_WT" = 1 ]; then
     while IFS= read -r line; do
         [ -n "$line" ] || continue
         case "$line" in "?? "*) is_fort_link "${line#?? }" && continue ;; esac
+        skip=0
+        for c in $FORT_COPIES; do
+            case "${line#?? }" in "$c"|"$c/"*) is_fort_copy "$c" && skip=1 ;; esac
+        done
+        [ "$skip" = 1 ] && continue
         DIRTY="$DIRTY$line
 "
     done <<EOF
 $(git -C "$WT" status --porcelain --untracked-files=all 2>/dev/null)
 EOF
+    for c in $FORT_COPIES; do
+        if [ -e "$WT/$c" ] && [ ! -L "$WT/$c" ] && ! is_fort_copy "$c"; then
+            block 3 "$WT/$c differs from $FORT_ROOT/$c (edited in the desk). Copy the changes to the root, or delete $WT/$c."
+        fi
+    done
     if [ -n "$DIRTY" ]; then
         block 3 "uncommitted changes in $WT (commit them in the worktree, or discard them by hand):"
         printf '%s' "$DIRTY" | head -20 | sed 's/^/             /'
@@ -300,6 +317,10 @@ if [ "$HAVE_WT" = 1 ]; then
     UNLINKED=""
     for P in $FORT_LINKS; do
         if is_fort_link "$P"; then rm -f "$WT/$P"; UNLINKED="$UNLINKED $P"; fi
+    done
+    for P in $FORT_COPIES; do
+        if is_fort_link "$P"; then rm -f "$WT/$P"; UNLINKED="$UNLINKED $P"   # desk from an older fort-spawn
+        elif is_fort_copy "$P"; then rm -rf "${WT:?}/$P"; UNLINKED="$UNLINKED $P"; fi
     done
     [ -z "$UNLINKED" ] || step "teardown:" "unlinked Fort links:$UNLINKED"
     # no --force: git itself refuses if anything uncommitted appeared since the check
