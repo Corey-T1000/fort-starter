@@ -4,7 +4,7 @@
 
 A template for building a persistent AI workspace on top of [Claude Code](https://docs.anthropic.com/en/docs/claude-code). It gives an AI agent persistent memory, enforced rules, and specialized tools -- all inside a git repo that you control. It's not a framework. It's a workspace template you fork and make your own.
 
-This was extracted from a personal setup that's been in daily use since December 2025. The patterns here aren't theoretical -- they've survived five months of real work across dozens of projects.
+This was extracted from a personal setup that's been in daily use since December 2025. The patterns here aren't theoretical -- they've survived ten months of real work across dozens of projects, usually with several agent sessions running side by side.
 
 > _Heads up: this is a WIP and an ever-evolving project. The setup it was extracted from changes weekly, and this template tracks along with it. Pin a commit if you need stability._
 
@@ -58,6 +58,32 @@ Then `claude` to start your first session. See [Getting started](#getting-starte
 
 ---
 
+## Running several sessions at once
+
+One session is a chat. The setup this came from usually has four to eight going: one per thread of work, each on its own branch. Three pieces make that manageable.
+
+**1. `/spawn` -- branch a thought into its own desk.** Mid-conversation, a side idea shows up. `/spawn auth-refactor` writes a short brief from the current conversation (focus, files to read, constraints, what to deliver), creates `worktrees/auth-refactor` on branch `spawn/auth-refactor`, and opens a fresh Claude session there that starts from the brief. Your current session doesn't move. The new desk opens as a cmux workspace if you're in [cmux](https://github.com/manaflow-ai/cmux), a tmux window if you're in tmux, and otherwise prints the command to paste. Set `FORT_SPAWN_RC=1` and the desk also starts with Remote Control, so it shows up in the Claude app on your phone.
+
+**2. The Fort Board -- one column that says whose turn it is.** A cmux sidebar (`core/cmux/`) lists every desk with its state:
+
+| State | Meaning |
+|-------|---------|
+| Needs you | blocked on a permission prompt |
+| Your move | the reply ends in a question, shown on the card |
+| Cooking | working |
+| Done / Ready to close | finished; "ready" once the session's memory capture has landed |
+| Stalled / Waiting | interrupted, or quiet for a while |
+
+cmux sidebars can't read files or the network, so the `desk-status.sh` hook publishes each desk's state as the workspace's progress label and the sidebar reads that. Optional: point `FORT_GIST_URL` at any Ollama-style endpoint and each card gets a one-line summary from a small local model. Leave it unset and the cards show the plain state plus the first line of the reply. Nothing breaks either way.
+
+**3. Quick replies -- answer without switching tabs.** When a desk asks a yes/no question, its card gets `yes` / `no` chips; any open question gets `ack` to quiet it until the next turn. Sidebars can't type into a terminal, so a chip leaves a note on the desk and a small relay (`bin/fort-board-relay`, a launchd agent) types the reply in. Fixed replies only.
+
+**When a desk is done:** `/despawn auth-refactor` runs the memory capture, then merges the branch back and removes the worktree. It previews first, refuses uncommitted work or a merge conflict, and never pushes.
+
+Setup for the board and relay: [`core/cmux/README.md`](core/cmux/README.md). Spawn and despawn work without cmux.
+
+---
+
 ## The five layers
 
 ```
@@ -66,7 +92,7 @@ Then `claude` to start your first session. See [Getting started](#getting-starte
 ┌─────────────────────────────────────────────────────────────┐
 │  5. CLI            bin/                  Shell utilities     │
 ├─────────────────────────────────────────────────────────────┤
-│  4. Skills         skills/               Slash commands      │
+│  4. Skills         .claude/skills/       Slash commands      │
 ├─────────────────────────────────────────────────────────────┤
 │  3. Memory         memory/ + MEMORY.md   Persistent context  │
 ├─────────────────────────────────────────────────────────────┤
@@ -90,9 +116,9 @@ Shell scripts that Claude Code executes at defined trigger points: before a tool
 
 Topic files organized with [Johnny Decimal](https://johnnydecimal.com/) numbering. `MEMORY.md` is a routing table that maps file paths to memory files -- when you start editing files in `projects/dashboard/`, the agent automatically loads `memory/60-dashboard.md` with prior context. Memory files hold operational knowledge: architecture decisions, API gotchas, deployment details. Knowledge that would otherwise be lost at the end of every session.
 
-### 4. Skills -- skills/
+### 4. Skills -- .claude/skills/
 
-Markdown files that define slash commands -- `/distill`, `/research`, `/garden`, `/eod`. Each skill is a structured prompt that Claude loads on demand (not on every session). Skills keep specialized workflows out of your base context window. You invoke them with `/skill-name` and they guide multi-step processes. The vanilla profile ships **17 user-invocable skills in `profiles/vanilla/commands/`** plus **13 plugin skills in `core/plugins/fort/skills/`** (loaded by skill name, not as slash commands). (See "The skill stack" section below for the full taxonomy and how they compose.)
+Each skill is a directory, `.claude/skills/<name>/SKILL.md`, and the directory name is the slash command: `/distill`, `/research`, `/spawn`, `/eod`. A skill is a structured prompt Claude loads on demand (not on every session), so specialized workflows stay out of your base context window. Supporting files (templates, references) live in the same directory. Sources are in `core/plugins/*/skills/` and `profiles/vanilla/skills/`; `fort-bootstrap` installs **28 skills** into `.claude/skills/`. (See "The skill stack" below for the full taxonomy and how they compose.)
 
 ### 5. CLI -- bin/
 
@@ -100,34 +126,25 @@ Shell utilities that support the workspace from outside Claude Code. Status dash
 
 ---
 
-## Receipts — five months in
+## Receipts — ten months in
 
 The setup this was extracted from, today:
 
 | Thing | Count |
 |-------|-------|
-| Hooks running | **54** (security / workflow / quality) |
-| Memory files | **38 JD-indexed topics · 60 session narratives · 62 feedback files** |
-| Agents | **12** (4 worker profiles + 8 skill-specialized) |
-| Skills invokable | **141** |
-| Commits since Dec 2025 | **381** |
-| Session logs captured | **62** |
-| Semantic stream entries (decisions / deploys / ships / research captured via `fort-stream`) | **361** |
-| Concurrent worktrees running on any given day | **2–4** |
+| Hooks running | **79** (security / workflow / quality) |
+| Memory files | **144 JD-indexed topics · 777 session narratives · 325 feedback files** |
+| Skills invokable | **336** |
+| Commits since Dec 2025 | **2,393** |
+| Session logs captured | **240** |
+| Semantic stream entries (decisions / deploys / ships / research captured via `fort-stream`) | **1,870** |
+| Worktrees on disk | **64** (most are parked desks from `/spawn`) |
 
-<sub>Last measured 2026-04-23 · regenerate via <code>bin/fort-receipts</code></sub>
+<sub>Last measured 2026-10-16 · regenerate via <code>bin/fort-receipts</code></sub>
 
-The starter ships lighter on purpose — **23 hooks, 17 skills, 4 worker agents**. It grows with you, not at you.
+The starter ships lighter on purpose: **26 hooks, 28 skills, 4 worker agents**. It grows with you, not at you.
 
-**Model routing — the pricing that makes worker agents a cost lever:**
-
-| Model | Input (per 1M tokens) | Output (per 1M tokens) | Vs Opus |
-|-------|----------------------|------------------------|---------|
-| Haiku 4.5 | $1 | $5 | **15× cheaper** |
-| Sonnet 4 | $3 | $15 | **5× cheaper** |
-| Opus 4 | $15 | $75 | baseline |
-
-On Max plan subscriptions the routing shows up as **headroom**, not dollars saved — every token not burned on a Haiku-sized task is a token available for another parallel dispatch or a longer iteration cycle before hitting usage ceilings. On API billing the same routing is a ~15× discount on that slice of the bill.
+**Model routing is a cost lever.** The worker agent profiles in `core/agents/` route mechanical work (file search, status checks) to a small model and keep the large one for review and ambiguous calls. On a subscription that shows up as headroom (more parallel sessions before you hit usage limits); on API billing it's a direct discount on that slice of the bill. Current per-model prices: [anthropic.com/pricing](https://www.anthropic.com/pricing).
 
 ---
 
@@ -140,19 +157,19 @@ $ git clone https://github.com/Corey-T1000/fort-starter.git my-workspace
 $ cd my-workspace
 $ ./fort-bootstrap --profile=vanilla
 
-fort-starter bootstrap v1.0
+🏰 Fort Setup
 
-  Profile:  vanilla (minimal starter)
-  Target:   ./
+━━━ Assembling Fort for vanilla ━━━
 
-  Assembling workspace...
-  [ok] CLAUDE.md written
-  [ok] .claude/hooks/ -- 23 hooks installed
-  [ok] .claude/agents/ -- 4 worker agents (Haiku/Sonnet/Opus routed)
-  [ok] memory/ -- starter structure created
-  [ok] skills/ -- 17 starter skills linked
-  [ok] bin/ -- utilities installed (including statusline.sh)
-  [ok] settings.json configured
+  ✓ CLAUDE.md assembled (base + vanilla)
+  ✓ bin/ scripts installed
+  ✓ Hooks installed: 26 active, 0 disabled
+  ✓ Rules installed (4)
+  ✓ Agents installed (4)
+  ✓ Settings installed from vanilla profile (paths resolved)
+  ✓ Plugins installed: 2
+  ✓ Skills installed: 28 (.claude/skills/<name>/SKILL.md)
+  ✓ Manifest written (fort-manifest.json)
 
   Ready. Run `claude` to start your first session.
 ```
@@ -602,7 +619,7 @@ The shape lets you ask "show me every PIVOT in the last month" instead of greppi
 | Vague, vibe-recall, "that session where..." | `/recall` | Agent-as-retriever scans narratives, filters by Flags |
 | Outgrown agent-scan budgets (hundreds of narratives) | Vector store (e.g. MemPalace) | Optional capstone — see below |
 
-**Capstone — when /recall stops scaling.** If your narrative corpus outgrows what an agent can scan in a single dispatch, the personal Fort layers a vector-backed semantic store on top. [MemPalace](https://github.com/Corey-T1000/claudes-fort) (the personal Fort's plugin) provides ChromaDB-backed semantic recall with launchd-driven re-mining and Flag-aware filtering. See `services/mempalace-bridge/` in [Corey's Fort](https://github.com/Corey-T1000/claudes-fort) for the install pattern. Not bundled here — it's Python venv + ChromaDB + ~672 MB of dependencies, which is the right tradeoff at scale and the wrong one at zero.
+**Capstone — when /recall stops scaling.** If your narrative corpus outgrows what an agent can scan in a single dispatch, layer a vector-backed semantic store on top (for example ChromaDB with a scheduled re-index and Flag-aware filtering). Not bundled here: it's a Python venv plus a few hundred MB of dependencies, which is the right tradeoff at scale and the wrong one at zero.
 
 The default starter retrieval — `/search-fort` for crisp keywords, `/recall` for vibe queries — is enough for the first several months of use. Graduate when you actually feel the budget, not before.
 
@@ -632,7 +649,14 @@ Skills that do the actual work.
 |-------|-------|--------------|
 | `/research` | explore | Dispatches `worker-research` to investigate a topic, writes structured findings to `scratch/research/`. |
 
-> The vanilla profile keeps the work-skill set narrow on purpose — `/research` plus the daily-rhythm and capture skills cover the core loop. Other workflow skills referenced in flows below (`/brainstorming`, `/writing-plans`, `/executing-plans`, `/design-lab`, `/review-pr`, `/ship`) are part of Corey's full Fort and are **not bundled in vanilla**. Add them via fork, install from the upstream Fort, or wait for upcoming PRs that promote stabilized skills into the starter.
+> The vanilla profile keeps the work-skill set narrow on purpose — `/research` plus the daily-rhythm and capture skills cover the core loop. Other workflow skills referenced in flows below (`/brainstorming`, `/writing-plans`, `/executing-plans`, `/design-lab`, `/review-pr`, `/ship`) are part of the personal setup and are **not bundled in vanilla**. Add them as `.claude/skills/<name>/SKILL.md` directories in your fork.
+
+### Parallel desks
+
+| Skill | What it does |
+|-------|--------------|
+| `/spawn` | Writes a brief from the current conversation, creates a worktree + branch, opens a new session there seeded with the brief. |
+| `/despawn` | Captures the desk's session, merges its branch back (previews first, never force, never pushes), removes the worktree. |
 
 ### Knowledge capture (the compounding loop)
 
@@ -722,7 +746,7 @@ The whole point of `/assistant` is that you don't have to remember which skill t
 
 ## Project structure
 
-The repo ships **sources** under `core/` and `profiles/`. Running `fort-bootstrap` assembles those into the live `.claude/`, `plugins/`, `memory/`, and `bin/` directories your sessions actually use.
+The repo ships **sources** under `core/` and `profiles/`. Running `fort-bootstrap` assembles those into the live `.claude/` (hooks, rules, agents, `skills/<name>/SKILL.md`), `plugins/`, `memory/`, and `bin/` directories your sessions actually use. `./fort-bootstrap --refresh` re-applies sources after a `git pull` and only replaces skills the template ships, so skills you write yourself survive.
 
 ```
 my-workspace/
@@ -732,13 +756,14 @@ my-workspace/
 │   ├── agents/                # Worker agent profiles (model routing + tool scoping)
 │   ├── bin/                   # Shell utilities (includes statusline.sh)
 │   ├── hooks/                 # Shell scripts -- deterministic enforcement
-│   ├── plugins/               # Plugin sources (e.g., core/plugins/fort/skills/)
+│   ├── plugins/               # Skill sources: core/plugins/<plugin>/skills/<name>/SKILL.md
 │   └── rules/                 # Focused instruction files (auto-loaded)
 ├── profiles/
 │   └── vanilla/               # Minimal starter profile
 │       ├── CLAUDE.md          # Profile-specific CLAUDE.md addendum
 │       ├── settings.json      # Profile-specific settings
-│       ├── commands/          # User-invocable slash commands (17 in vanilla)
+│       ├── skills/            # Profile-only skills (10 in vanilla); same name overrides core
+│       ├── skills-disabled/   # Per-profile skill opt-outs (extension point)
 │       ├── plugins/           # Per-profile plugin overrides (extension point)
 │       └── hooks-disabled/    # Per-profile hook opt-outs (extension point)
 ├── memory/                    # Persistent knowledge (JD-numbered topic files)
@@ -750,10 +775,12 @@ my-workspace/
 
 ### Customizing your profile
 
-Two extension points let you adapt a profile without touching `core/`:
+Three extension points let you adapt a profile without touching `core/`:
+
+- **`profiles/<name>/skills/<skill>/SKILL.md`** — a profile skill with the same name as a core one wins at install. **`profiles/<name>/skills-disabled/<skill>`** — `touch` it to skip a core skill.
 
 - **`profiles/<name>/plugins/<plugin-name>/`** — drop a plugin subdirectory here to **override or extend** the same-named plugin under `core/plugins/`. During bootstrap, profile plugins win over core plugins of the same name. Use this when you want a profile-specific variant of a shared plugin.
-- **`profiles/<name>/hooks-disabled/<hook-name>.sh`** — `touch` an empty file with the same name as a `core/hooks/<hook-name>.sh` file to **opt this profile out** of that hook. Bootstrap skips any hook that has a matching disabled marker. Use this when a core hook doesn't fit the profile (e.g., disabling a betting-domain hook in a non-betting profile).
+- **`profiles/<name>/hooks-disabled/<hook-name>.sh`** — `touch` an empty file with the same name as a `core/hooks/<hook-name>.sh` file to **opt this profile out** of that hook. Bootstrap skips any hook that has a matching disabled marker. Use this when a core hook doesn't fit the profile (e.g., a domain-specific hook that doesn't apply).
 
 Both are searched at bootstrap time — no further wiring needed. Add files, re-run `./fort-bootstrap --profile=<name>`, done.
 
