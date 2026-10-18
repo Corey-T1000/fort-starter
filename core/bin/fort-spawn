@@ -174,7 +174,11 @@ done
 LAUNCHED=""
 case "$LAUNCHER" in
     cmux)
-        if cmux new-workspace --name "$SLUG" --description "spawn $BRANCH" \
+        # "spawn · <branch>" marks the desk as a Fort desk for the board;
+        # " · from <uuid>" nests it under the desk it was spawned from.
+        DESC="spawn · $BRANCH"
+        [ -z "${CMUX_WORKSPACE_ID:-}" ] || DESC="$DESC · from $CMUX_WORKSPACE_ID"
+        if cmux new-workspace --name "$SLUG" --description "$DESC" \
                --cwd "$WT" --command "$CMD" >/dev/null 2>&1; then
             LAUNCHED="cmux workspace '$SLUG'"
         else

@@ -170,15 +170,24 @@ def surfaces_of(ws_id):
 
 
 def list_workspaces():
-    raw = cmux("workspace", "list", "--json")
+    """Every workspace in every cmux window (`workspace list` alone covers one window)."""
+    raw = cmux("list-windows", "--json")
     if raw is None:
         log(SOCKET_HINT)
         return None
     try:
-        return json.loads(raw)["workspaces"]
+        windows = [w["id"] for w in json.loads(raw)]
     except Exception:
-        log("cmux workspace list returned unreadable JSON")
+        log("cmux list-windows returned unreadable JSON")
         return None
+    out = []
+    for win in windows:
+        raw = cmux("workspace", "list", "--window", win, "--json")
+        try:
+            out.extend(json.loads(raw)["workspaces"])
+        except Exception:
+            log("cmux workspace list returned unreadable JSON for window %s" % win)
+    return out
 
 
 def sweep():
