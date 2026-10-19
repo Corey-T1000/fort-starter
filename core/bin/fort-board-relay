@@ -85,10 +85,11 @@ _last_logged = {}
 _failing = False
 
 
-def log(msg):
-    """One line to stderr, each distinct message at most once per LOG_EVERY."""
+def log(msg, every=True):
+    """One line to stderr. Repeating errors (every=True) print at most once per
+    LOG_EVERY; replies sent or dropped are events and always print."""
     t = time.time()
-    if t - _last_logged.get(msg, 0) < LOG_EVERY:
+    if every and t - _last_logged.get(msg, 0) < LOG_EVERY:
         return
     _last_logged[msg] = t
     print(time.strftime("%Y-%m-%d %H:%M:%S ") + "fort-board-relay: " + msg, file=sys.stderr, flush=True)
@@ -204,11 +205,11 @@ def sweep():
         if not why and req["surface"] not in surfaces_of(w["id"]):
             why = "surface is not in that workspace"
         if why:
-            log("dropped %r for workspace %s (surface %s): %s" % (req["reply"], w["id"], req["surface"], why))
+            log("dropped %r for workspace %s (surface %s): %s" % (req["reply"], w["id"], req["surface"], why), every=False)
             continue
         if cmux("send", "--surface", req["surface"], "--", req["reply"]) is not None \
                 and cmux("send-key", "--surface", req["surface"], "enter") is not None:
-            log("sent %r to workspace %s (surface %s)" % (req["reply"], w["id"], req["surface"]))
+            log("sent %r to workspace %s (surface %s)" % (req["reply"], w["id"], req["surface"]), every=False)
 
 
 def main():
