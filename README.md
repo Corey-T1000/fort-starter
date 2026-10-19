@@ -64,6 +64,11 @@ Then `claude` to start your first session. See [Getting started](#getting-starte
 
 One session is a chat. The setup this came from usually has four to eight going: one per thread of work, each on its own branch. Three pieces make that manageable.
 
+<p align="center">
+  <img src="assets/fort-board.gif" alt="The Fort Board sidebar: a yes chip on signup-copy sends the reply, the desk cooks and finishes, and route-planner picks up its next task" width="420">
+  <br><sub>Six demo desks in two groups. Tapping <b>yes</b> on signup-copy types it into that session; both desks cook, then land on Done.</sub>
+</p>
+
 **1. `/spawn` -- branch a thought into its own desk.** Mid-conversation, a side idea shows up. `/spawn auth-refactor` writes a short brief from the current conversation (focus, files to read, constraints, what to deliver), creates `worktrees/auth-refactor` on branch `spawn/auth-refactor`, and opens a fresh Claude session there that starts from the brief. Your current session doesn't move. The new desk opens as a cmux workspace if you're in [cmux](https://github.com/manaflow-ai/cmux), a tmux window if you're in tmux, and otherwise prints the command to paste. Set `FORT_SPAWN_RC=1` and the desk also starts with Remote Control, so it shows up in the Claude app on your phone.
 
 **2. The Fort Board -- one column that says whose turn it is.** A cmux sidebar (`core/cmux/`) lists every desk with its state:
