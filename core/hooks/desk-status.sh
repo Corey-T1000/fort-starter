@@ -123,7 +123,10 @@ if not text:
             break
 clean = [re.sub(r"\s+", " ", re.sub(r"[*_`#>]+", "", raw).strip(" -|")).strip()
          for raw in text.splitlines()]
-clean = [l for l in clean if l]
+# Box-drawing rules and fences carry no words; skip them so a reply that
+# opens with a table still gets a readable label.
+clean = [l.strip("\u2502\u2503\u250c\u2510\u2514\u2518\u251c\u2524\u2500\u2501 ") for l in clean]
+clean = [l for l in clean if re.search(r"\w", l)]
 turn = "you" if clean and clean[-1].endswith("?") else "done"
 
 def plain_yesno(ask):

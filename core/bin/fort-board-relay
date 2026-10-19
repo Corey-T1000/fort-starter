@@ -204,10 +204,11 @@ def sweep():
         if not why and req["surface"] not in surfaces_of(w["id"]):
             why = "surface is not in that workspace"
         if why:
-            log("dropped %r for workspace %s: %s" % (req["reply"], w["id"], why))
+            log("dropped %r for workspace %s (surface %s): %s" % (req["reply"], w["id"], req["surface"], why))
             continue
-        cmux("send", "--surface", req["surface"], "--", req["reply"])
-        cmux("send-key", "--surface", req["surface"], "enter")
+        if cmux("send", "--surface", req["surface"], "--", req["reply"]) is not None \
+                and cmux("send-key", "--surface", req["surface"], "enter") is not None:
+            log("sent %r to workspace %s (surface %s)" % (req["reply"], w["id"], req["surface"]))
 
 
 def main():
