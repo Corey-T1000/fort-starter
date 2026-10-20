@@ -1,0 +1,216 @@
+#!/usr/bin/env bash
+# fort-spawn -- branch a thought into its own worktree and Claude session.
+#
+# Creates $FORT_ROOT/worktrees/<slug> on a new branch spawn/<slug> off the
+# default branch, then opens a fresh Claude session there whose first turn is
+# the brief. The calling session stays where it is. fort-despawn is the inverse.
+#
+# Usage:
+#   fort-spawn <slug> [brief-file|-]
+#     slug         lowercase letters, digits and dashes (e.g. auth-refactor)
+#     brief-file   a file whose text becomes the session's first turn
+#     -            read the brief from stdin
+#     (omitted)    the session starts with no first turn
+#
+# Launcher, first match wins (override with FORT_SPAWN_LAUNCHER):
+#   cmux   a new cmux workspace, when cmux is installed and we are inside it
+#   tmux   a new tmux window, when $TMUX is set
+#   print  print the exact command to paste into a new terminal
+#
+# Env:
+#   FORT_ROOT            repo root (default: the repo this script sits in, <repo>/bin)
+#   FORT_MAIN_BRANCH     branch to fork from (default: origin/HEAD, else main/master)
+#   FORT_SPAWN_LAUNCHER  auto|cmux|tmux|print (default: auto)
+#   FORT_SPAWN_AGENT     the CLI to launch (default: claude)
+#   FORT_SPAWN_EFFORT    low|medium|high|xhigh|max, passed as --effort
+#   FORT_SPAWN_RC        1 = launch with --remote-control <slug>, so the session
+#                        shows up in claude.ai/code and the Claude mobile app
+set -euo pipefail
+
+die() { echo "fort-spawn: $*" >&2; exit 1; }
+
+# FORT_ROOT: the env var if set, else the repo this script is installed in
+# (<repo>/bin/fort-spawn, symlinks resolved). Keep in sync with fort-despawn.
+if [ -z "${FORT_ROOT:-}" ]; then
+    _self="$0"
+    while [ -L "$_self" ]; do
+        _link="$(readlink "$_self")"
+        case "$_link" in /*) _self="$_link" ;; *) _self="$(dirname "$_self")/$_link" ;; esac
+    done
+    # cd -P into bin/ first: from a desk, worktrees/<slug>/bin is a link to <repo>/bin
+    _root="$(cd -P "$(dirname "$_self")" 2>/dev/null && cd .. && pwd -P)" || _root=""
+    _top="$(git -C "$_root" rev-parse --show-toplevel 2>/dev/null)" && _top="$(cd -P "$_top" && pwd -P)" || _top=""
+    if [ -n "$_root" ] && [ "$_top" = "$_root" ]; then FORT_ROOT="$_root"; fi
+fi
+[ -n "${FORT_ROOT:-}" ] || die "can't tell which repo to use: run the copy in <repo>/bin, or set FORT_ROOT."
+# shellcheck source=/dev/null
+[ -f "$FORT_ROOT/.fort-env" ] && . "$FORT_ROOT/.fort-env"
+usage() { sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//' >&2; exit "${1:-1}"; }
+
+case "${1:-}" in
+    -h|--help) usage 0 ;;
+    "") usage 1 ;;
+esac
+SLUG="$1"
+BRIEF_SRC="${2:-}"
+[ $# -le 2 ] || die "too many arguments (the brief goes in a file or on stdin, not on the command line)."
+
+# --- slug: refuse anything that is not already clean -------------------------
+case "$SLUG" in
+    *[!abcdefghijklmnopqrstuvwxyz0123456789-]*|-*|*-) die "'$SLUG' is not a clean slug. Use lowercase letters, digits and dashes, e.g. $(printf '%s' "$SLUG" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9][^a-z0-9]*/-/g' -e 's/^-//' -e 's/-$//')" ;;
+esac
+[ "${#SLUG}" -le 48 ] || die "slug is longer than 48 characters."
+
+git -C "$FORT_ROOT" rev-parse --git-dir >/dev/null 2>&1 || die "$FORT_ROOT is not a git repository (set FORT_ROOT)."
+FORT_ROOT="$(cd "$FORT_ROOT" && pwd -P)"
+
+default_branch() {
+    if [ -n "${FORT_MAIN_BRANCH:-}" ]; then echo "$FORT_MAIN_BRANCH"; return; fi
+    local b
+    if b=$(git -C "$FORT_ROOT" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null); then
+        echo "${b#origin/}"; return
+    fi
+    for b in main master; do
+        git -C "$FORT_ROOT" show-ref --verify --quiet "refs/heads/$b" && { echo "$b"; return; }
+    done
+    git -C "$FORT_ROOT" symbolic-ref --quiet --short HEAD
+}
+BASE="$(default_branch)" || die "could not work out the default branch (set FORT_MAIN_BRANCH)."
+git -C "$FORT_ROOT" show-ref --verify --quiet "refs/heads/$BASE" || die "default branch '$BASE' has no local ref."
+
+BRANCH="spawn/$SLUG"
+WT="$FORT_ROOT/worktrees/$SLUG"
+
+# --- refuse an existing slug: branch, folder, or a registered worktree -------
+git -C "$FORT_ROOT" show-ref --verify --quiet "refs/heads/$BRANCH" && die "branch $BRANCH already exists. Pick another slug, or open worktrees/$SLUG directly."
+[ -e "$WT" ] && die "$WT already exists. Pick another slug."
+git -C "$FORT_ROOT" worktree list --porcelain | grep -qxF "worktree $WT" && die "a worktree is still registered at $WT (try: git worktree prune)."
+
+LAUNCHER="${FORT_SPAWN_LAUNCHER:-auto}"
+case "$LAUNCHER" in
+    auto)
+        if command -v cmux >/dev/null 2>&1 && [ -n "${CMUX_WORKSPACE_ID:-}" ]; then LAUNCHER=cmux
+        elif [ -n "${TMUX:-}" ] && command -v tmux >/dev/null 2>&1; then LAUNCHER=tmux
+        else LAUNCHER=print
+        fi ;;
+    cmux|tmux|print) ;;
+    *) die "FORT_SPAWN_LAUNCHER must be auto, cmux, tmux or print (got '$LAUNCHER')." ;;
+esac
+
+# --- the brief ----------------------------------------------------------------
+# A long or non-ASCII prompt gets mangled riding a command line into a new
+# terminal, so it always goes through a file the launch command cats. The file
+# lives in the git dir: never tracked, never dirties the worktree or main.
+BRIEF_FILE=""
+if [ -n "$BRIEF_SRC" ]; then
+    BRIEF_DIR="$(cd "$FORT_ROOT" && cd "$(git rev-parse --git-common-dir)" && pwd -P)/fort-spawn"
+    mkdir -p "$BRIEF_DIR"
+    BRIEF_FILE="$BRIEF_DIR/$SLUG-$(date +%Y%m%d-%H%M%S).md"
+    if [ "$BRIEF_SRC" = "-" ]; then
+        cat > "$BRIEF_FILE"
+    else
+        [ -f "$BRIEF_SRC" ] || die "brief file '$BRIEF_SRC' not found."
+        cp "$BRIEF_SRC" "$BRIEF_FILE"
+    fi
+    [ -s "$BRIEF_FILE" ] || { rm -f "$BRIEF_FILE"; die "the brief is empty."; }
+fi
+
+AGENT="${FORT_SPAWN_AGENT:-claude}"
+# Every word is quoted with printf %q: paths may hold spaces or quotes, and
+# cmux/tmux hand CMD to a shell.
+CMD="$(printf '%q' "$AGENT")"
+case "${FORT_SPAWN_EFFORT:-}" in
+    low|medium|high|xhigh|max) CMD="$CMD --effort $FORT_SPAWN_EFFORT" ;;
+    "") ;;
+    *) echo "fort-spawn: ignoring invalid FORT_SPAWN_EFFORT='$FORT_SPAWN_EFFORT'" >&2 ;;
+esac
+# The name is always passed, so --remote-control's optional value cannot
+# swallow the brief as its argument.
+[ "${FORT_SPAWN_RC:-}" = 1 ] && CMD="$CMD --remote-control $(printf '%q' "$SLUG")"
+[ -n "$BRIEF_FILE" ] && CMD="$CMD \"\$(cat $(printf '%q' "$BRIEF_FILE"))\""
+
+# --- the worktree -------------------------------------------------------------
+# worktrees/ sits inside the repo; keep it out of `git status` on the default
+# branch without touching the tracked .gitignore.
+EXCLUDE="$(cd "$FORT_ROOT" && cd "$(git rev-parse --git-common-dir)" && pwd -P)/info/exclude"
+mkdir -p "$(dirname "$EXCLUDE")"
+if ! git -C "$FORT_ROOT" check-ignore -q "worktrees/$SLUG"; then
+    printf '/worktrees/\n' >> "$EXCLUDE"
+fi
+mkdir -p "$FORT_ROOT/worktrees"
+git -C "$FORT_ROOT" worktree add --quiet -b "$BRANCH" "$WT" "$BASE" \
+    || die "git worktree add failed; nothing else was done."
+echo "fort-spawn: worktree $WT on $BRANCH (off $BASE)"
+
+# --- the assembled Fort -------------------------------------------------------
+# fort-bootstrap writes these as untracked files, so a fresh worktree has none
+# of them: no settings (hooks, env), skills, rules, agents or bin/. Symlink each
+# one that exists in $FORT_ROOT, is not tracked on $BASE, and is not already in
+# the worktree. Rules and CLAUDE.md are COPIED instead: Claude Code treats
+# instruction files that resolve outside the project as external imports and
+# asks about them in every new desk. info/exclude is shared by every worktree,
+# so listing the paths there keeps the desk's `git status` clean.
+# Keep in sync with fort-despawn.
+FORT_LINKS=".claude/settings.local.json .claude/hooks .claude/skills .claude/agents .claude/commands bin .fort-env"
+FORT_COPIES=".claude/rules CLAUDE.md"
+# What each copy looked like at spawn, so fort-despawn can tell a desk edit
+# from a later root edit. Lives in the worktree's own git dir (removed with it).
+COPIES_FILE="$(git -C "$WT" rev-parse --absolute-git-dir)/fort-copies"
+# fingerprint <dir> <path>: one hash over every file under <dir>/<path>, by
+# relative name, so a copy can be compared with what it was at spawn.
+fingerprint() {
+    (cd "$1" && find "$2" -type f -print | LC_ALL=C sort | while IFS= read -r f; do
+        printf '%s  %s\n' "$(shasum < "$f" | cut -d' ' -f1)" "$f"
+    done) | shasum | cut -d' ' -f1
+}
+LINKED=""
+for P in $FORT_LINKS $FORT_COPIES; do
+    [ -e "$FORT_ROOT/$P" ] || continue
+    [ -z "$(git -C "$FORT_ROOT" ls-tree -r --name-only "$BASE" -- "$P" | head -1)" ] || continue
+    [ -e "$WT/$P" ] || [ -L "$WT/$P" ] && continue
+    mkdir -p "$(dirname "$WT/$P")"
+    case " $FORT_COPIES " in
+        *" $P "*) cp -R "$FORT_ROOT/$P" "$WT/$P"
+                  printf '%s %s\n' "$(fingerprint "$WT" "$P")" "$P" >> "$COPIES_FILE" ;;
+        *) ln -s "$FORT_ROOT/$P" "$WT/$P" ;;
+    esac
+    git -C "$WT" check-ignore -q -- "$P" || printf '/%s\n' "$P" >> "$EXCLUDE"
+    LINKED="$LINKED $P"
+done
+[ -z "$LINKED" ] || echo "fort-spawn: linked/copied from $FORT_ROOT:$LINKED"
+[ -z "$(git -C "$WT" status --porcelain)" ] \
+    || echo "fort-spawn: note: the new worktree is not clean; check \`git -C $(printf '%q' "$WT") status\`." >&2
+
+# --- launch -------------------------------------------------------------------
+LAUNCHED=""
+case "$LAUNCHER" in
+    cmux)
+        # "spawn · <branch>" marks the desk as a Fort desk for the board;
+        # " · from <uuid>" nests it under the desk it was spawned from.
+        DESC="spawn · $BRANCH"
+        [ -z "${CMUX_WORKSPACE_ID:-}" ] || DESC="$DESC · from $CMUX_WORKSPACE_ID"
+        if cmux new-workspace --name "$SLUG" --description "$DESC" \
+               --cwd "$WT" --command "$CMD" >/dev/null 2>&1; then
+            LAUNCHED="cmux workspace '$SLUG'"
+        else
+            echo "fort-spawn: cmux refused the workspace; falling back to print." >&2
+        fi ;;
+    tmux)
+        if tmux new-window -n "$SLUG" -c "$WT" "$CMD" 2>/dev/null; then
+            LAUNCHED="tmux window '$SLUG'"
+        else
+            echo "fort-spawn: tmux refused the window; falling back to print." >&2
+        fi ;;
+esac
+
+if [ -n "$LAUNCHED" ]; then
+    echo "fort-spawn: launched in $LAUNCHED"
+else
+    echo "fort-spawn: open a new terminal and paste:"
+    echo
+    echo "  cd $(printf '%q' "$WT") && $CMD"
+    echo
+fi
+[ -n "$BRIEF_FILE" ] && echo "  brief:    $BRIEF_FILE"
+[ "${FORT_SPAWN_RC:-}" = 1 ] && echo "  remote:   Remote Control on, session name '$SLUG'"
+echo "  despawn:  fort-despawn $SLUG"

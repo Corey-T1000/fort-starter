@@ -18,7 +18,7 @@ Build a self-contained HTML viewer that traces every block of derived content ba
 
 **Use it for** any source-vs-derivative verification — one-pagers vs the live pages they derive from, decks vs source docs, summaries vs originals, etc.
 
-See `skills/diff-view.md` for the full skill definition and `skills/diff-view-references/template.html` for the canonical UI shape.
+See `skills/diff-view/SKILL.md` for the full skill definition and `skills/diff-view/references/template.html` for the canonical UI shape.
 
 ## Adding skills here
 

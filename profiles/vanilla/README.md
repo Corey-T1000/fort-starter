@@ -2,7 +2,7 @@
 
 The fort-starter base profile. Public-safe, zero PII, no infra dependencies.
 
-This is what `./fort-bootstrap --profile=vanilla` installs. Generic assistant identity, conservative permissions, the 20 slash commands that cover the daily-rhythm + capture loop. Anyone should be able to clone the repo, run the bootstrap, and end up with a working Claude Code workspace.
+This is what `./fort-bootstrap --profile=vanilla` installs. Generic assistant identity, conservative permissions, its own daily-rhythm skills on top of the core skill set. Anyone should be able to clone the repo, run the bootstrap, and end up with a working Claude Code workspace.
 
 ## What's inside
 
@@ -10,7 +10,7 @@ This is what `./fort-bootstrap --profile=vanilla` installs. Generic assistant id
 |------|----------|
 | `CLAUDE.md` | Generic CLAUDE overlay — points at `notes/about-me.md` for identity, names the daily distill ritual. Concatenated onto `core/CLAUDE.base.md` at install. |
 | `settings.json` | Conservative permissions (read-only Bash allows, web search). All core hooks wired up. `__FORT_ROOT__` tokens are rewritten to absolute paths at install. |
-| `commands/` | 20 slash commands. See `commands/README.md` for the inventory and grouping. |
+| `skills/` | 10 vanilla-only skills (daily rhythm, distill, assistant, utilities). Core plugin skills install alongside them. See `skills/README.md` for the full inventory. |
 | `plugins/` | Empty by design (`.gitkeep` only). User additions land here. See `plugins/README.md`. |
 | `hooks-disabled/` | Empty by design (`.gitkeep` only). Vanilla runs all core safety hooks. |
 

@@ -9,9 +9,9 @@ _FORT_ENV="${FORT_ROOT:-$HOME/claudes-fort}/.fort-env"
 FORT_ROOT="${FORT_ROOT:-$HOME/claudes-fort}"
 FORT_PROJECTS="$HOME/.claude/projects/-$(echo "$FORT_ROOT" | sed 's|^/||; s|/|-|g')"
 CRITICAL_SKILLS=(
-  "plugins/fort/skills/distill.md"
-  "plugins/fort/skills/eod.md"
-  "plugins/fort/skills/note.md"
+  ".claude/skills/distill/SKILL.md"
+  ".claude/skills/eod/SKILL.md"
+  ".claude/skills/note/SKILL.md"
 )
 
 BROKEN=""
@@ -25,5 +25,5 @@ done
 if [ -n "$BROKEN" ]; then
   echo "⚠️  CRITICAL SKILLS BROKEN — distill pipeline will silently fail!${BROKEN}"
   echo ""
-  echo "Fix: check symlinks and file permissions in plugins/fort/skills/"
+  echo "Fix: re-run ./fort-bootstrap --refresh (installs skills into .claude/skills/)"
 fi

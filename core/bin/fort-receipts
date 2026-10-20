@@ -39,10 +39,18 @@ else
 fi
 
 # --- Skills invokable ---
-# Plugin SKILL.md files (user-global) + slash commands (project + user-global).
+# Plugin SKILL.md files (user-global) + skills and legacy slash commands (project + user-global).
 plugin_skills=0
 if [ -d "$HOME/.claude/plugins" ]; then
     plugin_skills="$(find "$HOME/.claude/plugins" -type f -name "SKILL.md" 2>/dev/null | wc -l | tr -d ' ')"
+fi
+project_skills=0
+if [ -d .claude/skills ]; then
+    project_skills="$(find .claude/skills -mindepth 2 -maxdepth 2 -name SKILL.md 2>/dev/null | wc -l | tr -d ' ')"
+fi
+user_skills=0
+if [ -d "$HOME/.claude/skills" ]; then
+    user_skills="$(find -L "$HOME/.claude/skills" -mindepth 2 -maxdepth 2 -name SKILL.md 2>/dev/null | wc -l | tr -d ' ')"
 fi
 project_cmds=0
 if [ -d .claude/commands ]; then
@@ -52,7 +60,7 @@ user_cmds=0
 if [ -d "$HOME/.claude/commands" ]; then
     user_cmds="$(find "$HOME/.claude/commands" -type f -name "*.md" 2>/dev/null | wc -l | tr -d ' ')"
 fi
-skills=$((plugin_skills + project_cmds + user_cmds))
+skills=$((plugin_skills + project_skills + user_skills + project_cmds + user_cmds))
 
 # --- Commits since Dec 2025 ---
 if git rev-parse --git-dir >/dev/null 2>&1; then

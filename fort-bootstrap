@@ -185,7 +185,7 @@ backup_current() {
   local has_files=false
 
   # Check if there's anything to back up
-  for target in .claude/hooks .claude/rules .claude/commands .claude/settings.local.json CLAUDE.md bin plugins; do
+  for target in .claude/hooks .claude/rules .claude/skills .claude/commands .claude/settings.local.json CLAUDE.md .fort-env bin plugins; do
     if [[ -e "$FORT_ROOT/$target" ]]; then
       has_files=true
       break
@@ -203,9 +203,11 @@ backup_current() {
   # Back up everything that assembly would overwrite (ignore missing files)
   [[ -d "$FORT_ROOT/.claude/hooks" ]]    && cp -r "$FORT_ROOT/.claude/hooks" "$backup_dir/" 2>/dev/null || true
   [[ -d "$FORT_ROOT/.claude/rules" ]]    && cp -r "$FORT_ROOT/.claude/rules" "$backup_dir/" 2>/dev/null || true
+  [[ -d "$FORT_ROOT/.claude/skills" ]]   && cp -r "$FORT_ROOT/.claude/skills" "$backup_dir/" 2>/dev/null || true
   [[ -d "$FORT_ROOT/.claude/commands" ]] && cp -r "$FORT_ROOT/.claude/commands" "$backup_dir/" 2>/dev/null || true
   [[ -f "$FORT_ROOT/.claude/settings.local.json" ]] && cp "$FORT_ROOT/.claude/settings.local.json" "$backup_dir/" 2>/dev/null || true
   [[ -f "$FORT_ROOT/CLAUDE.md" ]]        && cp "$FORT_ROOT/CLAUDE.md" "$backup_dir/" 2>/dev/null || true
+  [[ -f "$FORT_ROOT/.fort-env" ]]        && cp "$FORT_ROOT/.fort-env" "$backup_dir/" 2>/dev/null || true
   [[ -d "$FORT_ROOT/bin" ]]              && cp -r "$FORT_ROOT/bin" "$backup_dir/" 2>/dev/null || true
   [[ -d "$FORT_ROOT/plugins" ]]          && cp -r "$FORT_ROOT/plugins" "$backup_dir/" 2>/dev/null || true
 
@@ -224,6 +226,38 @@ backup_current() {
 }
 
 # ─── Manifest ─────────────────────────────────────────────
+
+# Where a shipped skill comes from: the profile's skills/ wins over core plugins.
+# Prints the repo-relative dir, or fails for a skill the Fort didn't ship.
+skill_source() {
+  local profile="$1" name="$2" p
+  if [[ -f "$FORT_ROOT/profiles/$profile/skills/$name/SKILL.md" ]]; then
+    echo "profiles/$profile/skills/$name"; return 0
+  fi
+  for p in "$FORT_ROOT/core/plugins/"*/skills/"$name"/SKILL.md; do
+    [[ -f "$p" ]] && { dirname "${p#$FORT_ROOT/}"; return 0; }
+  done
+  return 1
+}
+
+# Every skill this profile ships, one name per line (core plugins + profile, deduped),
+# minus any listed in profiles/<profile>/skills-disabled/<name> (opt-out, like hooks-disabled/).
+shipped_skills() {
+  local profile="$1" d name
+  for d in "$FORT_ROOT/core/plugins/"*/skills/*/ "$FORT_ROOT/profiles/$profile/skills/"*/; do
+    [[ -f "$d/SKILL.md" ]] || continue
+    name=$(basename "$d")
+    [[ -e "$FORT_ROOT/profiles/$profile/skills-disabled/$name" ]] && continue
+    echo "$name"
+  done | sort -u
+}
+
+# Escape a value for the replacement side of sed "s|...|<here>|" (\, | and &).
+sed_repl() { printf '%s' "$1" | sed 's/[\\|&]/\\&/g'; }
+# Escape a path for a JSON string, then for sed.
+json_path() { sed_repl "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"; }
+# Escape a path for XML text (plists), then for sed.
+xml_path() { sed_repl "$(printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')"; }
 
 generate_manifest() {
   local profile="$1"
@@ -282,18 +316,19 @@ generate_manifest() {
     rules_count=$((rules_count + 1))
   done
 
-  # --- Collect commands ---
-  local commands_json=""
-  local commands_count=0
-  for cmd in "$FORT_ROOT/.claude/commands/"*.md; do
-    [[ ! -f "$cmd" ]] && continue
-    local name hash
-    name=$(basename "$cmd")
-    hash=$(md5 -q "$cmd")
-    [[ -n "$commands_json" ]] && commands_json="$commands_json,"
-    commands_json="$commands_json
-      {\"name\":\"$name\",\"source\":\"profiles/$profile/commands/$name\",\"hash\":\"$hash\"}"
-    commands_count=$((commands_count + 1))
+  # --- Collect installed skills (.claude/skills/<name>/SKILL.md) ---
+  local installed_json=""
+  local installed_count=0
+  for skill in "$FORT_ROOT/.claude/skills/"*/SKILL.md; do
+    [[ ! -f "$skill" ]] && continue
+    local name hash src
+    name=$(basename "$(dirname "$skill")")
+    src=$(skill_source "$profile" "$name") || continue  # user-made skill, not ours to track
+    hash=$(md5 -q "$skill")
+    [[ -n "$installed_json" ]] && installed_json="$installed_json,"
+    installed_json="$installed_json
+      {\"name\":\"$name\",\"source\":\"$src/SKILL.md\",\"hash\":\"$hash\"}"
+    installed_count=$((installed_count + 1))
   done
 
   # --- Collect plugins ---
@@ -314,10 +349,10 @@ generate_manifest() {
     local skills_json=""
     local skill_count=0
     if [[ -d "$pdir/skills" ]]; then
-      for skill in "$pdir/skills/"*.md; do
+      for skill in "$pdir/skills/"*/SKILL.md; do
         [[ ! -f "$skill" ]] && continue
         local sname
-        sname=$(basename "$skill")
+        sname=$(basename "$(dirname "$skill")")
         [[ -n "$skills_json" ]] && skills_json="$skills_json,"
         skills_json="$skills_json\"$sname\""
         skill_count=$((skill_count + 1))
@@ -358,7 +393,7 @@ generate_manifest() {
     "hooks_disabled": [$hooks_disabled_json],
     "rules": [$rules_json
     ],
-    "commands": [$commands_json
+    "skills": [$installed_json
     ],
     "plugins": [$plugins_json
     ],
@@ -369,9 +404,9 @@ generate_manifest() {
     "hooks_active": $hooks_active,
     "hooks_disabled": $hooks_disabled_count,
     "rules": $rules_count,
-    "commands": $commands_count,
+    "skills_installed": $installed_count,
     "plugins": $plugins_count,
-    "skills": $total_skills,
+    "plugin_skills": $total_skills,
     "bin_scripts": $bin_count
   }
 }
@@ -409,7 +444,7 @@ assemble_fort() {
     name=$(basename "$f")
     if [[ "$name" == *.plist ]]; then
       # Plist files can't use shell vars — sed-replace the placeholder
-      sed "s|__FORT_ROOT__|$FORT_ROOT|g; s|__FORT_USER__|$(whoami)|g" "$f" > "$FORT_ROOT/bin/$name"
+      sed "s|__FORT_ROOT__|$(xml_path "$FORT_ROOT")|g; s|__FORT_USER__|$(xml_path "$(whoami)")|g" "$f" > "$FORT_ROOT/bin/$name"
     else
       cp -f "$f" "$FORT_ROOT/bin/$name"
     fi
@@ -464,7 +499,8 @@ assemble_fort() {
   # 6. Copy profile settings.json → .claude/settings.local.json (with path templating)
   if [[ -f "$profile_dir/settings.json" ]]; then
     mkdir -p "$FORT_ROOT/.claude"
-    sed "s|__FORT_ROOT__|$FORT_ROOT|g" "$profile_dir/settings.json" > "$FORT_ROOT/.claude/settings.local.json"
+    # Hook commands quote the path in settings.json, so a FORT_ROOT with spaces works.
+    sed "s|__FORT_ROOT__|$(json_path "$FORT_ROOT")|g" "$profile_dir/settings.json" > "$FORT_ROOT/.claude/settings.local.json"
     log "Settings installed from $profile profile (paths resolved)"
   fi
 
@@ -475,7 +511,9 @@ assemble_fort() {
     [[ ! -d "$plugin_dir" ]] && continue
     local name
     name=$(basename "$plugin_dir")
-    cp -rf "$plugin_dir" "$FORT_ROOT/plugins/"
+    # No trailing slash: BSD cp copies a "dir/" source's contents, flattening every plugin into plugins/
+    rm -rf "$FORT_ROOT/plugins/$name"
+    cp -R "${plugin_dir%/}" "$FORT_ROOT/plugins/$name"
     plugin_count=$((plugin_count + 1))
   done
   for plugin_dir in "$profile_dir/plugins/"*/; do
@@ -483,22 +521,43 @@ assemble_fort() {
     local name
     name=$(basename "$plugin_dir")
     [[ "$name" == ".gitkeep" ]] && continue
-    cp -rf "$plugin_dir" "$FORT_ROOT/plugins/"
+    rm -rf "$FORT_ROOT/plugins/$name"
+    cp -R "${plugin_dir%/}" "$FORT_ROOT/plugins/$name"
     plugin_count=$((plugin_count + 1))
   done
   log "Plugins installed: $plugin_count"
 
-  # 8. Copy profile commands/ → .claude/commands/
-  mkdir -p "$FORT_ROOT/.claude/commands"
-  # Clear existing commands first (profile controls which commands are available)
-  rm -f "$FORT_ROOT/.claude/commands/"*.md 2>/dev/null || true
-  local cmd_count=0
-  for cmd in "$profile_dir/commands/"*.md; do
-    [[ ! -f "$cmd" ]] && continue
-    cp -f "$cmd" "$FORT_ROOT/.claude/commands/"
-    cmd_count=$((cmd_count + 1))
+  # 8. Install skills → .claude/skills/<name>/SKILL.md
+  #    Sources: every core/plugins/*/skills/<name>/ plus profiles/<profile>/skills/<name>/
+  #    (profile wins). Only skills we ship are replaced; skills you made yourself are left alone.
+  mkdir -p "$FORT_ROOT/.claude/skills"
+  local skill_count=0 name src
+  while read -r name; do
+    src=$(skill_source "$profile" "$name") || continue
+    rm -rf "$FORT_ROOT/.claude/skills/$name"
+    cp -R "$FORT_ROOT/$src" "$FORT_ROOT/.claude/skills/$name"
+    # Older installs put this skill at .claude/commands/<name>.md; that copy would shadow it.
+    rm -f "$FORT_ROOT/.claude/commands/$name.md"
+    skill_count=$((skill_count + 1))
+  done < <(shipped_skills "$profile")
+  # Older installs also copied the commands/ README in as if it were a command.
+  if head -1 "$FORT_ROOT/.claude/commands/README.md" 2>/dev/null | grep -q '^# profiles/.*/commands/'; then
+    rm -f "$FORT_ROOT/.claude/commands/README.md"
+  fi
+  rmdir "$FORT_ROOT/.claude/commands" 2>/dev/null || true
+  # A skill disabled after it was installed: remove our copy (only names the template ships).
+  local marker
+  for marker in "$profile_dir/skills-disabled/"*; do
+    [[ -e "$marker" ]] || continue
+    name=$(basename "$marker")
+    [[ "$name" == .gitkeep ]] && continue
+    ls "$FORT_ROOT"/core/plugins/*/skills/"$name"/SKILL.md >/dev/null 2>&1 || continue
+    if [[ -d "$FORT_ROOT/.claude/skills/$name" ]]; then
+      rm -rf "$FORT_ROOT/.claude/skills/$name"
+      info "Removed disabled skill: $name"
+    fi
   done
-  log "Commands installed: $cmd_count"
+  log "Skills installed: $skill_count (.claude/skills/<name>/SKILL.md)"
 
   # 9. Create personal dirs if they don't exist
   for dir in memory notes scratch logs projects; do
@@ -508,14 +567,19 @@ assemble_fort() {
     fi
   done
 
-  # 10. Write .fort-env
-  cat > "$FORT_ROOT/.fort-env" << EOF
+  # 10. Write .fort-env: the four managed keys, then every other line the
+  # user added (CMUX_SOCKET_PASSWORD, FORT_GIST_URL, ...) kept as is.
+  local env_file="$FORT_ROOT/.fort-env" env_keep=""
+  local managed='^[[:space:]]*(export[[:space:]]+)?(FORT_ROOT|FORT_REMOTE_IP|FORT_PROFILE|FORT_USER)=|^# \.fort-env — machine-specific'
+  [[ -f "$env_file" ]] && env_keep="$(grep -vE "$managed" "$env_file" || true)"
+  cat > "$env_file" << EOF
 # .fort-env — machine-specific Fort configuration
 FORT_ROOT="$FORT_ROOT"
 FORT_REMOTE_IP="${FORT_REMOTE_IP:-}"
 FORT_PROFILE="$profile"
 FORT_USER="$(whoami)"
 EOF
+  if [[ -n "$env_keep" ]]; then printf '%s\n' "$env_keep" >> "$env_file"; fi
   log ".fort-env written"
 
   # 11. Generate manifest
@@ -588,21 +652,19 @@ do_refresh() {
     fi
   done
 
-  # Check profile commands
-  local profile_dir="$FORT_ROOT/profiles/$profile"
-  for cmd in "$profile_dir/commands/"*.md; do
-    [[ ! -f "$cmd" ]] && continue
-    local name
-    name=$(basename "$cmd")
-    local target="$FORT_ROOT/.claude/commands/$name"
-    if [[ ! -f "$target" ]]; then
-      change_list+=("  ${GREEN}+${NC} commands/$name (new)")
+  # Check skills (core plugins + profile)
+  local name src
+  while read -r name; do
+    src=$(skill_source "$profile" "$name") || continue
+    local target="$FORT_ROOT/.claude/skills/$name"
+    if [[ ! -d "$target" ]]; then
+      change_list+=("  ${GREEN}+${NC} skills/$name (new)")
       changes=$((changes + 1))
-    elif ! diff -q "$cmd" "$target" &>/dev/null; then
-      change_list+=("  ${YELLOW}~${NC} commands/$name (modified)")
+    elif ! diff -rq "$FORT_ROOT/$src" "$target" &>/dev/null; then
+      change_list+=("  ${YELLOW}~${NC} skills/$name (modified)")
       changes=$((changes + 1))
     fi
-  done
+  done < <(shipped_skills "$profile")
 
   if [[ $changes -eq 0 ]]; then
     log "Everything up to date. No changes needed."
@@ -674,6 +736,7 @@ do_rollback() {
   # Restore each component if it exists in the backup
   [[ -d "$restore_dir/hooks" ]]    && cp -rf "$restore_dir/hooks" "$FORT_ROOT/.claude/"
   [[ -d "$restore_dir/rules" ]]    && cp -rf "$restore_dir/rules" "$FORT_ROOT/.claude/"
+  [[ -d "$restore_dir/skills" ]]   && cp -rf "$restore_dir/skills" "$FORT_ROOT/.claude/"
   [[ -d "$restore_dir/commands" ]] && cp -rf "$restore_dir/commands" "$FORT_ROOT/.claude/"
   [[ -f "$restore_dir/settings.local.json" ]] && cp -f "$restore_dir/settings.local.json" "$FORT_ROOT/.claude/"
   [[ -f "$restore_dir/CLAUDE.md" ]] && cp -f "$restore_dir/CLAUDE.md" "$FORT_ROOT/"
@@ -736,13 +799,13 @@ do_status() {
   # Counts
   local hooks_count
   hooks_count=$(ls "$FORT_ROOT/.claude/hooks/"*.sh 2>/dev/null | wc -l | tr -d ' ')
-  local cmds_count
-  cmds_count=$(ls "$FORT_ROOT/.claude/commands/"*.md 2>/dev/null | wc -l | tr -d ' ')
+  local skills_count
+  skills_count=$(ls "$FORT_ROOT/.claude/skills/"*/SKILL.md 2>/dev/null | wc -l | tr -d ' ')
   local plugins_count
   plugins_count=$(ls -d "$FORT_ROOT/plugins/"*/ 2>/dev/null | wc -l | tr -d ' ')
 
   echo ""
-  echo -e "  ${DIM}Hooks: $hooks_count | Commands: $cmds_count | Plugins: $plugins_count${NC}"
+  echo -e "  ${DIM}Hooks: $hooks_count | Skills: $skills_count | Plugins: $plugins_count${NC}"
 
   # Manifest info
   if [[ -f "$FORT_ROOT/fort-manifest.json" ]]; then
@@ -761,7 +824,11 @@ main() {
   echo ""
   echo -e "  ${CASTLE} ${BOLD}Fort Setup${NC} ${DIM}v${VERSION}${NC}"
 
-  check_prereqs
+  if [[ "${FORT_SKIP_PREREQS:-}" == 1 ]]; then
+    warn "Skipping the prerequisite check (FORT_SKIP_PREREQS=1)"
+  else
+    check_prereqs
+  fi
 
   # Check for existing fort files
   if [[ -f "$FORT_ROOT/CLAUDE.md" ]] || [[ -d "$FORT_ROOT/.claude/hooks" ]]; then
@@ -784,14 +851,14 @@ main() {
   echo ""
   local hooks_count
   hooks_count=$(ls "$FORT_ROOT/.claude/hooks/"*.sh 2>/dev/null | wc -l | tr -d ' ')
-  local cmds_count
-  cmds_count=$(ls "$FORT_ROOT/.claude/commands/"*.md 2>/dev/null | wc -l | tr -d ' ')
+  local skills_count
+  skills_count=$(ls "$FORT_ROOT/.claude/skills/"*/SKILL.md 2>/dev/null | wc -l | tr -d ' ')
   local plugins_count
   plugins_count=$(ls -d "$FORT_ROOT/plugins/"*/ 2>/dev/null | wc -l | tr -d ' ')
 
   echo -e "    Profile:   ${BOLD}$PROFILE${NC}"
   echo -e "    Hooks:     $hooks_count active"
-  echo -e "    Commands:  $cmds_count"
+  echo -e "    Skills:    $skills_count"
   echo -e "    Plugins:   $plugins_count"
   echo ""
   echo "  To finish setup:"
@@ -813,6 +880,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --yes|-y)   YES=true; shift ;;
     --profile)  PROFILE_ARG="$2"; shift 2 ;;
+    --profile=*) PROFILE_ARG="${1#--profile=}"; shift ;;
     --refresh)  COMMAND="refresh"; shift ;;
     --rollback) COMMAND="rollback"; shift ;;
     --status)   COMMAND="status"; shift ;;
@@ -821,6 +889,18 @@ while [[ $# -gt 0 ]]; do
     *)          err "Unknown option: $1"; echo "Run: fort-bootstrap --help"; exit 1 ;;
   esac
 done
+
+# A /spawn desk is a linked worktree whose settings, hooks, skills, bin and
+# .fort-env are symlinks to the main checkout: assembling here would write
+# through them and point the main checkout's hooks at this desk.
+if [[ "$COMMAND" != help && "$COMMAND" != status ]] && command -v git >/dev/null 2>&1; then
+  git_dir="$(git -C "$FORT_ROOT" rev-parse --absolute-git-dir 2>/dev/null || true)"
+  common_dir="$(cd "$FORT_ROOT" && cd "$(git rev-parse --git-common-dir 2>/dev/null || echo .)" && pwd -P)"
+  if [[ -n "$git_dir" && "$(cd "$git_dir" && pwd -P)" != "$common_dir" ]]; then
+    err "This is a worktree (a /spawn desk). Run fort-bootstrap in the main checkout: $(dirname "$common_dir")"
+    exit 1
+  fi
+fi
 
 case "$COMMAND" in
   refresh)  do_refresh ;;

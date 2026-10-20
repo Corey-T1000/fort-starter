@@ -1,0 +1,254 @@
+#!/usr/bin/env python3
+"""fort-board-relay: deliver Fort Board quick replies to the asking terminal.
+
+A cmux custom sidebar can't type into a terminal (its action scopes are
+select/close/split/zoom/navigate/open URL; there is no send-text), but it can
+set a workspace description. So a quick-reply chip in core/cmux/fort-board.js
+writes a request onto the desk's description:
+
+  say:<surface-uuid>:<label-key>:<epoch>:<reply> · <rest of the description>
+
+label-key is a hash of the progress label the chip answered ("Your move? ·
+<question>") and epoch is when it was tapped. This relay polls the workspace
+list every second, strips the request first (so it fires once), and then
+types the reply + Enter with the cmux CLI only when all of these hold:
+  - the reply is one of the board's fixed replies (yes / no)
+  - the request is at most MAX_AGE seconds old (a request left over from a
+    sleeping Mac or a relay that wasn't running is dropped, never replayed)
+  - the desk's progress label right now is still that exact "Your move?"
+    label (if the desk moved on, e.g. to "Needs you", where Enter would pick
+    a permission prompt's default, or to "Cooking" because you answered in
+    the terminal, the request is dropped)
+  - the surface belongs to that workspace
+Dropped requests and cmux failures are logged to stderr (the launchd log),
+each distinct message at most once per LOG_EVERY seconds.
+
+cmux socket access: the relay runs outside cmux, which cmux's default
+"cmux processes only" automation mode refuses. See core/cmux/README.md
+("Quick-reply relay") for the setting. If CMUX_SOCKET_PASSWORD is not in the
+environment it is read from $FORT_ROOT/.fort-env.
+
+Usage:
+  fort-board-relay              poll forever (1s)
+  fort-board-relay --once       one sweep, then exit
+  fort-board-relay --check      one cmux call; prints ok or the error + fix, exit 0/1
+  fort-board-relay --parse DESC [--label LABEL] [--now EPOCH]
+                                print how a description is read and whether it
+                                would be delivered (JSON), no cmux calls
+"""
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+
+REPLIES = ("yes", "no")  # keep in sync with QUICK_REPLIES in core/cmux/fort-board.js
+SAY = re.compile(r"^say:([0-9A-Fa-f-]{36}):([0-9a-z]+):(\d+):(%s)(?: · |$)" % "|".join(map(re.escape, REPLIES)))
+YESNO_PREFIX = "Your move? · "
+MAX_AGE = 120
+LOG_EVERY = 300
+def _repo_root():
+    """The repo this script lives in: <root>/bin/ when installed, <root>/core/bin/ in source."""
+    up = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    return os.path.dirname(up) if os.path.basename(up) == "core" else up
+
+
+FORT_ROOT = os.environ.get("FORT_ROOT") or _repo_root()
+SOCKET_HINT = ("cmux did not answer the relay. If cmux is running, its automation mode is probably "
+               "the default 'cmux processes only', which refuses processes started outside cmux "
+               "terminals (launchd); see core/cmux/README.md, 'Quick-reply relay'.")
+
+
+def env_with_password():
+    env = {**os.environ, "CMUX_QUIET": "1"}
+    if env.get("CMUX_SOCKET_PASSWORD"):
+        return env
+    try:
+        with open(os.path.join(FORT_ROOT, ".fort-env")) as f:
+            for line in f:
+                m = re.match(r"\s*(?:export\s+)?CMUX_SOCKET_PASSWORD=(.*)$", line)
+                if m:
+                    v = m.group(1).strip()
+                    if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+                        v = v[1:-1]
+                    if v:
+                        env["CMUX_SOCKET_PASSWORD"] = v
+    except OSError:
+        pass
+    return env
+
+
+ENV = env_with_password()
+_last_logged = {}
+_failing = False
+
+
+def log(msg, every=True):
+    """One line to stderr. Repeating errors (every=True) print at most once per
+    LOG_EVERY; replies sent or dropped are events and always print."""
+    t = time.time()
+    if every and t - _last_logged.get(msg, 0) < LOG_EVERY:
+        return
+    _last_logged[msg] = t
+    print(time.strftime("%Y-%m-%d %H:%M:%S ") + "fort-board-relay: " + msg, file=sys.stderr, flush=True)
+
+
+def label_key(label):
+    """Same hash as labelKey() in core/cmux/fort-board.js (over UTF-16 code units, like charCodeAt)."""
+    h = 5381
+    units = label.encode("utf-16-le")
+    for i in range(0, len(units), 2):
+        h = ((h * 33) ^ (units[i] | units[i + 1] << 8)) & 0xFFFFFFFF
+    out, digits = "", "0123456789abcdefghijklmnopqrstuvwxyz"
+    while True:
+        h, r = divmod(h, 36)
+        out = digits[r] + out
+        if h == 0:
+            return out
+
+
+def parse(desc):
+    """{surface, key, at, reply, rest} for a well-formed request, else None."""
+    m = SAY.match(desc or "")
+    if not m:
+        return None
+    return {"surface": m.group(1).upper(), "key": m.group(2), "at": int(m.group(3)),
+            "reply": m.group(4), "rest": desc[m.end():]}
+
+
+def verdict(req, label, now):
+    """'' when the request may be delivered, else why it is dropped."""
+    if now - req["at"] > MAX_AGE:
+        return "stale (%ds old)" % (now - req["at"])
+    if req["at"] - now > MAX_AGE:
+        return "timestamped in the future"
+    if not label.startswith(YESNO_PREFIX):
+        return "desk is no longer a yes/no Your move (now %r)" % (label[:40] or "no label")
+    if label_key(label) != req["key"]:
+        return "desk asked something new since the tap"
+    return ""
+
+
+def cmux(*args, timeout=5):
+    """stdout on success; None on failure, with the failure logged."""
+    global _failing
+    try:
+        out = subprocess.run(["cmux", *args], capture_output=True, text=True, timeout=timeout, env=ENV)
+    except Exception as e:
+        _failing = True
+        log("cmux %s could not run: %s" % (args[0], e))
+        return None
+    if out.returncode != 0:
+        _failing = True
+        err = (out.stderr or out.stdout or "").strip().splitlines()
+        log("cmux %s failed (exit %d): %s" % (" ".join(args[:2]), out.returncode, err[0][:200] if err else "no output"))
+        return None
+    if _failing:
+        _failing = False
+        _last_logged.clear()
+        log("cmux reachable again")
+    return out.stdout
+
+
+def progress_label(ws_id):
+    """The workspace's progress label from `cmux sidebar-state` ("progress=<value> <label>")."""
+    raw = cmux("sidebar-state", "--workspace", ws_id)
+    for line in (raw or "").splitlines():
+        if line.startswith("progress="):
+            parts = line[len("progress="):].split(" ", 1)
+            return parts[1] if len(parts) > 1 else ""
+    return ""
+
+
+def surfaces_of(ws_id):
+    raw = cmux("rpc", "surface.list", json.dumps({"workspace_id": ws_id}))
+    try:
+        return {s["id"].upper() for s in json.loads(raw)["surfaces"]}
+    except Exception:
+        return set()
+
+
+def list_workspaces():
+    """Every workspace in every cmux window (`workspace list` alone covers one window)."""
+    raw = cmux("list-windows", "--json")
+    if raw is None:
+        log(SOCKET_HINT)
+        return None
+    try:
+        windows = [w["id"] for w in json.loads(raw)]
+    except Exception:
+        log("cmux list-windows returned unreadable JSON")
+        return None
+    out = []
+    for win in windows:
+        raw = cmux("workspace", "list", "--window", win, "--json")
+        try:
+            out.extend(json.loads(raw)["workspaces"])
+        except Exception:
+            log("cmux workspace list returned unreadable JSON for window %s" % win)
+    return out
+
+
+def sweep():
+    for w in list_workspaces() or []:
+        req = parse(w.get("description") or "")
+        if not req:
+            continue
+        # Strip first, so a request fires at most once even if the send fails.
+        if req["rest"]:
+            cmux("workspace-action", "--workspace", w["id"], "--action", "set-description", "--description", req["rest"])
+        else:
+            cmux("workspace-action", "--workspace", w["id"], "--action", "clear-description")
+        why = verdict(req, progress_label(w["id"]), int(time.time()))
+        if not why and req["surface"] not in surfaces_of(w["id"]):
+            why = "surface is not in that workspace"
+        if why:
+            log("dropped %r for workspace %s (surface %s): %s" % (req["reply"], w["id"], req["surface"], why), every=False)
+            continue
+        if cmux("send", "--surface", req["surface"], "--", req["reply"]) is not None \
+                and cmux("send-key", "--surface", req["surface"], "enter") is not None:
+            log("sent %r to workspace %s (surface %s)" % (req["reply"], w["id"], req["surface"]), every=False)
+
+
+def main():
+    args = sys.argv[1:]
+    if args[:1] == ["--parse"]:
+        desc = args[1] if len(args) > 1 else ""
+        opt = lambda k, d: args[args.index(k) + 1] if k in args and args.index(k) + 1 < len(args) else d
+        req = parse(desc)
+        if req is not None:
+            why = verdict(req, opt("--label", ""), int(opt("--now", str(int(time.time())))))
+            req["deliver"], req["why"] = not why, why
+        print(json.dumps(req))
+        return
+    if "--check" in args:
+        if shutil.which("cmux") is None:
+            print("error: cmux CLI not on PATH")
+            sys.exit(1)
+        ws = list_workspaces()
+        if ws is None:
+            print("error: " + SOCKET_HINT)
+            sys.exit(1)
+        print("ok: cmux reachable, %d workspaces" % len(ws))
+        return
+    if "--once" in args:
+        sweep()
+        return
+    while True:
+        # No cmux CLI on PATH (not installed, or launchd PATH too narrow): idle
+        # instead of spawning a failing process every second.
+        if shutil.which("cmux") is None:
+            log("cmux CLI not on PATH; waiting")
+            time.sleep(30)
+            continue
+        sweep()
+        time.sleep(1)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass

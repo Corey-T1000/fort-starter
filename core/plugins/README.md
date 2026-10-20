@@ -1,22 +1,22 @@
 # core/plugins/
 
-Shared Claude Code plugins. Two ship with fort-starter; both install into every profile.
+Skill sources, grouped as Claude Code plugins. Two ship with fort-starter.
 
 ## Inventory
 
-| Plugin | What it provides | Internal layout |
-|--------|------------------|-----------------|
-| `fort` | Workflow skills — capture, recall, narrate, distill, retro, park, research, etc. The persistent-workspace toolkit. | `skills/` |
-| `fort-tools` | Reusable utility skills that aren't tied to the daily Fort rhythm. Currently: `diff-view` (source-vs-derivative HTML viewer). | `.claude-plugin/plugin.json`, `skills/`, `README.md` |
+| Plugin | What it provides |
+|--------|------------------|
+| `fort` | Workflow skills: capture, recall, narrate, retro, park, research, spawn/despawn, skill-health, and more. The persistent-workspace toolkit. |
+| `fort-tools` | Utility skills not tied to the daily rhythm. Currently `diff-view` (source-vs-derivative HTML viewer). |
 
-See `fort-tools/README.md` for the rationale on the `fort` vs `fort-tools` split.
+See `fort-tools/README.md` for the rationale on the split.
 
-## How discovery works
+## Layout
 
-Claude Code discovers plugins by scanning `./plugins/` in the live working tree (NOT `core/plugins/` directly). A plugin is any subdirectory containing a manifest at `.claude-plugin/plugin.json`, or a recognized skill layout. `fort-bootstrap` copies `core/plugins/*` into `./plugins/` during assembly — the live copy is what Claude Code reads.
+Every skill is a directory: `<plugin>/skills/<name>/SKILL.md`, with `name: <name>` and a `description:` in its frontmatter. Supporting files (templates, references) sit next to `SKILL.md` inside that directory. The directory name is the slash command. Each plugin also carries a manifest at `.claude-plugin/plugin.json`, so `claude plugin validate core/plugins/<name>` works.
 
-## Canonical skill location
+## How they install
 
-`core/plugins/fort/skills/` is the source of truth for fort-plugin skills. The 16 skills here are loaded by name (referenced from rules, agents, or other skills) rather than invoked as slash commands. User-invocable slash commands live in `profiles/<name>/commands/` instead — see `profiles/vanilla/commands/README.md`.
+`fort-bootstrap` copies every skill directory from here, plus the profile's own `profiles/<profile>/skills/`, into `.claude/skills/<name>/`. That is the directory Claude Code reads; there is no `.claude/commands/` mirror. A profile skill with the same name wins over a core one, and `profiles/<profile>/skills-disabled/<name>` skips one.
 
-Profile-specific plugins go in `profiles/<name>/plugins/` and install additively alongside core plugins (see `profiles/README.md`).
+Edit the source here and run `./fort-bootstrap --refresh`; edits made directly in `.claude/skills/` are local overrides that the next refresh replaces. `/skill-health` flags malformed skill directories and drifted installed copies.
