@@ -99,11 +99,17 @@ already briefed. Then come back to the current thread unchanged.
 ## Notes
 
 - The desk gets the assembled Fort: every untracked bootstrap output that
-  exists at the repo root (`.claude/settings.local.json`, `.claude/hooks`,
-  `skills`, `rules`, `agents`, `commands`, `bin`, `.fort-env`, `CLAUDE.md`) is
-  symlinked in, so hooks, skills and `bin/` work there. Anything tracked on the
-  default branch is left alone, nothing is overwritten, and the paths go into
-  `.git/info/exclude` so the desk stays clean. `/despawn` unlinks them first.
+  exists at the repo root. `.claude/settings.local.json`, `.claude/hooks`,
+  `skills`, `agents`, `commands`, `bin` and `.fort-env` are symlinked in, so
+  hooks, skills and `bin/` work there. `rules` and `CLAUDE.md` are copied
+  (Claude Code asks about instruction files that resolve outside the project),
+  so a later edit at the root doesn't reach an open desk. Anything tracked on
+  the default branch is left alone, nothing is overwritten, and the paths go
+  into `.git/info/exclude` so the desk stays clean. `/despawn` unlinks the
+  links and removes the copies, unless a copy was edited in the desk (it
+  stops and says so).
+- Run `fort-bootstrap` in the main checkout, never in a desk: it refuses
+  inside a worktree, because it would write through the desk's links.
 - The brief file lives under `.git/fort-spawn/`, so it never dirties the
   worktree or the default branch. `/despawn` deletes it with the desk.
 - `fort-spawn` adds `/worktrees/` to `.git/info/exclude` if nothing ignores it

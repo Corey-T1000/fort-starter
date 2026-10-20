@@ -34,7 +34,7 @@ DISTILL_SKILL="$FORT_ROOT/.claude/skills/distill/SKILL.md"
 if [ ! -r "$DISTILL_SKILL" ]; then
     echo "{
       \"decision\": \"block\",
-      \"reason\": \"🔴 DISTILL SKILL IS BROKEN — file missing or unreadable at .claude/skills/distill/SKILL.md. To proceed anyway: bash .claude/hooks/emergency-distill.sh\"
+      \"reason\": \"🔴 DISTILL SKILL IS BROKEN — file missing or unreadable at .claude/skills/distill/SKILL.md. To proceed anyway: restore the distill skill, or touch profiles/<profile>/hooks-disabled/precompact-distill.sh and run ./fort-bootstrap --refresh\"
     }"
     exit 0
 fi

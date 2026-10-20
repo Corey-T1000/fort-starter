@@ -93,6 +93,8 @@ const workspaces = [
   ws(18, "fort:approve", [agent("needs_input", 50)], "Your move? · commit the playground files now?"),
   ws(19, "fort:either-or", [agent("needs_input", 55)], "Your move · wait for the report or try something else?"),
   ws(20, "fort:open-q", [agent("needs_input", 58)], "Your move · Refs: what should we review next?"),
+  // Claude in two terminals: the board can't tell which one asked, so ack only.
+  ws(28, "fort:two-panes", [agent("needs_input", 52), agent("needs_input", 70, { surfaceId: "66666666-7777-8888-9999-000000000000" })], "Your move? · push the branch now?"),
   // Gist-less: the Stop hook alone publishes "Done · <first line of the reply>".
   ws(22, "fort:plain-done", [agent("needs_input", 240)], "Done · Plain first line of the reply"),
   // Bare "Done" with no line: subtitle falls back to the last prompt.
@@ -129,8 +131,8 @@ const checks = [
   ["interrupted Cooking reads Stalled", texts.filter((t) => t.startsWith("Stalled")).length >= 2],
   ["Needs you state text", texts.includes("Needs you 1m")],
   ["Cooking state text", texts.includes("Cooking 30s")],
-  ["header counts your move", helps.includes("6 your move")],
-  ["header skips acked desk", !helps.includes("7 your move")],
+  ["header counts your move", helps.includes("7 your move")],
+  ["header skips acked desk", !helps.includes("8 your move")],
   ["yes/no ask text shown without the ?", has("commit the playground files now?") && !texts.some((t) => t.startsWith("Your move?"))],
   ["header counts need-you", helps.includes("1 need you")],
   ["legacy desk still Waiting", has("Waiting 1h")],
@@ -157,10 +159,12 @@ const checks = [
   ["unknown label: old desk reads Waiting", has("Something else entirely") && has("Waiting 2h")],
   // Removed features stay removed.
   ["no Next up card, usage or meeting strip", !texts.includes("NEXT UP") && !texts.includes("USAGE")],
-  // Quick replies: yes/no only on the "Your move?" ask (w18); ack on every open
-  // Your move desk (w1, w10, w13, w18, w19, w20); none on Needs you.
+  // Quick replies: yes/no only on the "Your move?" ask in one terminal (w18,
+  // not w28); ack on every open Your move desk (w1, w10, w13, w18, w19, w20,
+  // w28); none on Needs you.
   ["yes/no chips only on the yes/no ask", idsWithText("yes").length === 1 && idsWithText("no").length === 1],
-  ["ack chip on every open Your move desk", idsWithText("ack").length === 6],
+  ["ack chip on every open Your move desk", idsWithText("ack").length === 7],
+  ["two-terminal yes/no ask gets ack only", has("push the branch now")],
   ["say prefix never shown", !texts.some((s) => s.startsWith("say:"))],
 ];
 // A chip writes "say:<surface>:<reply> · " for bin/fort-board-relay; the relay

@@ -740,6 +740,10 @@ function deskMenu(entry) {
 // open Your move card also gets ack.
 const QUICK_REPLIES = ["yes", "no"]; // keep in sync with REPLIES in bin/fort-board-relay
 const asksYesNo = (w) => hookLabel(w).startsWith("Your move? · ");
+// The progress label is per workspace, so with Claude in two terminals the
+// board can't tell which one asked (and the other may sit on a permission
+// prompt, where Enter approves). Typed replies need exactly one terminal.
+const oneTerminal = (w) => new Set((w.agents ?? []).filter((a) => a.status !== "ended" && a.surfaceId).map((a) => a.surfaceId)).size === 1;
 const sentReply = new Map(); // wsId -> { key, text } until the desk's turn changes
 const [sentTick, setSentTick] = signal(0);
 function sentFor(w) {
@@ -749,7 +753,7 @@ function sentFor(w) {
 }
 function sendReply(w, text) {
   const sid = jumpSurface(w, "your_move");
-  if (!sid || sentFor(w)) return;
+  if (!sid || !oneTerminal(w) || sentFor(w)) return;
   sentReply.set(w.id, { key: ackKey(w), text });
   setSentTick(sentTick() + 1);
   const d = stripSay(w.description);
@@ -787,7 +791,7 @@ function deskRow(e) {
   const live = computed(() => liveAgents(w(), now()));
   const chipMode = computed(() => {
     if (st() !== "your_move" || compact() || sentFor(w()) !== "") return "";
-    return asksYesNo(w()) && jumpSurface(w(), st()) !== "" ? "approve" : "ack";
+    return asksYesNo(w()) && oneTerminal(w()) && jumpSurface(w(), st()) !== "" ? "approve" : "ack";
   });
 
   const stateLabel = () => (isLive(st()) ? stateText(w(), st(), since(), now()) : "");

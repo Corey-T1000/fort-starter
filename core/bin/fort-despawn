@@ -85,6 +85,8 @@ default_branch() {
     git -C "$FORT_ROOT" symbolic-ref --quiet --short HEAD
 }
 BASE="$(default_branch)" || die 1 "could not work out the default branch (set FORT_MAIN_BRANCH)."
+git -C "$FORT_ROOT" show-ref --verify --quiet "refs/heads/$BASE" \
+    || die 1 "default branch '$BASE' has no local ref. Run \`git -C \"$FORT_ROOT\" checkout $BASE\` first, or set FORT_MAIN_BRANCH."
 BRANCH="spawn/$SLUG"
 WT="$FORT_ROOT/worktrees/$SLUG"
 
@@ -108,11 +110,27 @@ is_fort_link() {   # is_fort_link <path-in-worktree>: one of OUR links, pointing
     return 1
 }
 # Rules and CLAUDE.md are copies, not links (see fort-spawn). A copy is ours
-# only while it still matches the root; an edited copy is the user's work.
+# while it still matches what fort-spawn copied (its recorded fingerprint), so
+# a root edit after the spawn doesn't make it look like desk work. Desks
+# spawned before fingerprints existed fall back to comparing with the root.
 FORT_COPIES=".claude/rules CLAUDE.md"
+# fingerprint <dir> <path>: one hash over every file under <dir>/<path>, by
+# relative name, so a copy can be compared with what it was at spawn.
+fingerprint() {
+    (cd "$1" && find "$2" -type f -print | LC_ALL=C sort | while IFS= read -r f; do
+        printf '%s  %s\n' "$(shasum < "$f" | cut -d' ' -f1)" "$f"
+    done) | shasum | cut -d' ' -f1
+}
 is_fort_copy() {   # is_fort_copy <path>: an untouched copy fort-spawn made
-    [ -e "$WT/$1" ] && [ ! -L "$WT/$1" ] && [ -e "$FORT_ROOT/$1" ] \
-        && diff -rq "$WT/$1" "$FORT_ROOT/$1" >/dev/null 2>&1
+    [ -e "$WT/$1" ] && [ ! -L "$WT/$1" ] || return 1
+    local rec gd
+    gd="$(git -C "$WT" rev-parse --absolute-git-dir 2>/dev/null)" || gd=""
+    rec="$([ -n "$gd" ] && [ -f "$gd/fort-copies" ] && awk -v p="$1" '$2 == p { h = $1 } END { print h }' "$gd/fort-copies")"
+    if [ -n "$rec" ]; then
+        [ "$(fingerprint "$WT" "$1")" = "$rec" ]
+    else
+        [ -e "$FORT_ROOT/$1" ] && diff -rq "$WT/$1" "$FORT_ROOT/$1" >/dev/null 2>&1
+    fi
 }
 
 echo "fort-despawn: $SLUG ($([ "$YES" = 1 ] && echo executing || echo dry run; true))"
@@ -145,7 +163,7 @@ $(git -C "$WT" status --porcelain --untracked-files=all 2>/dev/null)
 EOF
     for c in $FORT_COPIES; do
         if [ -e "$WT/$c" ] && [ ! -L "$WT/$c" ] && ! is_fort_copy "$c"; then
-            block 3 "$WT/$c differs from $FORT_ROOT/$c (edited in the desk). Copy the changes to the root, or delete $WT/$c."
+            block 3 "$WT/$c was edited in the desk. Copy what you want to keep into $FORT_ROOT/$c by hand (the root may have changed since the spawn), or delete $WT/$c."
         fi
     done
     if [ -n "$DIRTY" ]; then

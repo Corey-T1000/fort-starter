@@ -58,6 +58,11 @@ Then wire the hook (see "How the hook feeds it") and start Claude Code from a cm
 
 ### Quick-reply relay
 
+yes / no chips only show when Claude runs in one terminal on that desk. The
+"Your move?" label belongs to the whole workspace, so with two Claude panes
+the board can't tell which one asked, and the other might be sitting on a
+permission prompt where Enter approves.
+
 A cmux custom sidebar cannot type into a terminal. Its action scopes cover select, close, split, zoom, navigate and opening URLs, with no send-text, so a chip's direct send would be dropped silently. Instead a chip writes a request in front of the desk's workspace description:
 
 ```
@@ -115,13 +120,13 @@ Custom sidebars have no filesystem, network or timers. The only data they see is
 | `Notification` (matcher `permission_prompt`) | `desk-status.sh blocked` | `Needs you` |
 | `Stop` | `desk-status.sh done` | `Done · <first line of the reply>`, or `Your move · <question>` when the reply's last line is a question (`Your move? · <question>` when a bare yes or no answers it: not an either/or, not a which/what/how question), or `Ready to close · …` when a matching `$FORT_ROOT/memory/session_*.md` (`originSessionId: <session id>`) is newer than your last prompt |
 
-Add to the `hooks` block of your settings (bootstrap replaces `__FORT_ROOT__`):
+The vanilla profile already wires all four; nothing to add. For a profile of your own, add them to its `settings.json` `hooks` block, merged into any lists that event already has (bootstrap replaces `__FORT_ROOT__`; the quotes keep a path with spaces working):
 
 ```json
-"UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "__FORT_ROOT__/.claude/hooks/desk-status.sh working", "timeout": 5000 }] }],
-"PermissionRequest": [{ "hooks": [{ "type": "command", "command": "__FORT_ROOT__/.claude/hooks/desk-status.sh blocked", "timeout": 5000 }] }],
-"Notification": [{ "matcher": "permission_prompt", "hooks": [{ "type": "command", "command": "__FORT_ROOT__/.claude/hooks/desk-status.sh blocked", "timeout": 5000 }] }],
-"Stop": [{ "hooks": [{ "type": "command", "command": "__FORT_ROOT__/.claude/hooks/desk-status.sh done", "timeout": 5000 }] }]
+"UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "\"__FORT_ROOT__/.claude/hooks/desk-status.sh\" working", "timeout": 5000 }] }],
+"PermissionRequest": [{ "hooks": [{ "type": "command", "command": "\"__FORT_ROOT__/.claude/hooks/desk-status.sh\" blocked", "timeout": 5000 }] }],
+"Notification": [{ "matcher": "permission_prompt", "hooks": [{ "type": "command", "command": "\"__FORT_ROOT__/.claude/hooks/desk-status.sh\" blocked", "timeout": 5000 }] }],
+"Stop": [{ "hooks": [{ "type": "command", "command": "\"__FORT_ROOT__/.claude/hooks/desk-status.sh\" done", "timeout": 5000 }] }]
 ```
 
 Outside cmux (no `CMUX_WORKSPACE_ID`) or without the `cmux` CLI the hook exits 0 and does nothing, so it is safe to leave wired everywhere.

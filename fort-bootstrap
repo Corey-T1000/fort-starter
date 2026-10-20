@@ -185,7 +185,7 @@ backup_current() {
   local has_files=false
 
   # Check if there's anything to back up
-  for target in .claude/hooks .claude/rules .claude/skills .claude/commands .claude/settings.local.json CLAUDE.md bin plugins; do
+  for target in .claude/hooks .claude/rules .claude/skills .claude/commands .claude/settings.local.json CLAUDE.md .fort-env bin plugins; do
     if [[ -e "$FORT_ROOT/$target" ]]; then
       has_files=true
       break
@@ -207,6 +207,7 @@ backup_current() {
   [[ -d "$FORT_ROOT/.claude/commands" ]] && cp -r "$FORT_ROOT/.claude/commands" "$backup_dir/" 2>/dev/null || true
   [[ -f "$FORT_ROOT/.claude/settings.local.json" ]] && cp "$FORT_ROOT/.claude/settings.local.json" "$backup_dir/" 2>/dev/null || true
   [[ -f "$FORT_ROOT/CLAUDE.md" ]]        && cp "$FORT_ROOT/CLAUDE.md" "$backup_dir/" 2>/dev/null || true
+  [[ -f "$FORT_ROOT/.fort-env" ]]        && cp "$FORT_ROOT/.fort-env" "$backup_dir/" 2>/dev/null || true
   [[ -d "$FORT_ROOT/bin" ]]              && cp -r "$FORT_ROOT/bin" "$backup_dir/" 2>/dev/null || true
   [[ -d "$FORT_ROOT/plugins" ]]          && cp -r "$FORT_ROOT/plugins" "$backup_dir/" 2>/dev/null || true
 
@@ -566,14 +567,19 @@ assemble_fort() {
     fi
   done
 
-  # 10. Write .fort-env
-  cat > "$FORT_ROOT/.fort-env" << EOF
+  # 10. Write .fort-env: the four managed keys, then every other line the
+  # user added (CMUX_SOCKET_PASSWORD, FORT_GIST_URL, ...) kept as is.
+  local env_file="$FORT_ROOT/.fort-env" env_keep=""
+  local managed='^[[:space:]]*(export[[:space:]]+)?(FORT_ROOT|FORT_REMOTE_IP|FORT_PROFILE|FORT_USER)=|^# \.fort-env — machine-specific'
+  [[ -f "$env_file" ]] && env_keep="$(grep -vE "$managed" "$env_file" || true)"
+  cat > "$env_file" << EOF
 # .fort-env — machine-specific Fort configuration
 FORT_ROOT="$FORT_ROOT"
 FORT_REMOTE_IP="${FORT_REMOTE_IP:-}"
 FORT_PROFILE="$profile"
 FORT_USER="$(whoami)"
 EOF
+  if [[ -n "$env_keep" ]]; then printf '%s\n' "$env_keep" >> "$env_file"; fi
   log ".fort-env written"
 
   # 11. Generate manifest
@@ -883,6 +889,18 @@ while [[ $# -gt 0 ]]; do
     *)          err "Unknown option: $1"; echo "Run: fort-bootstrap --help"; exit 1 ;;
   esac
 done
+
+# A /spawn desk is a linked worktree whose settings, hooks, skills, bin and
+# .fort-env are symlinks to the main checkout: assembling here would write
+# through them and point the main checkout's hooks at this desk.
+if [[ "$COMMAND" != help && "$COMMAND" != status ]] && command -v git >/dev/null 2>&1; then
+  git_dir="$(git -C "$FORT_ROOT" rev-parse --absolute-git-dir 2>/dev/null || true)"
+  common_dir="$(cd "$FORT_ROOT" && cd "$(git rev-parse --git-common-dir 2>/dev/null || echo .)" && pwd -P)"
+  if [[ -n "$git_dir" && "$(cd "$git_dir" && pwd -P)" != "$common_dir" ]]; then
+    err "This is a worktree (a /spawn desk). Run fort-bootstrap in the main checkout: $(dirname "$common_dir")"
+    exit 1
+  fi
+fi
 
 case "$COMMAND" in
   refresh)  do_refresh ;;

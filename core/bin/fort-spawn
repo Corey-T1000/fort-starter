@@ -153,6 +153,16 @@ echo "fort-spawn: worktree $WT on $BRANCH (off $BASE)"
 # Keep in sync with fort-despawn.
 FORT_LINKS=".claude/settings.local.json .claude/hooks .claude/skills .claude/agents .claude/commands bin .fort-env"
 FORT_COPIES=".claude/rules CLAUDE.md"
+# What each copy looked like at spawn, so fort-despawn can tell a desk edit
+# from a later root edit. Lives in the worktree's own git dir (removed with it).
+COPIES_FILE="$(git -C "$WT" rev-parse --absolute-git-dir)/fort-copies"
+# fingerprint <dir> <path>: one hash over every file under <dir>/<path>, by
+# relative name, so a copy can be compared with what it was at spawn.
+fingerprint() {
+    (cd "$1" && find "$2" -type f -print | LC_ALL=C sort | while IFS= read -r f; do
+        printf '%s  %s\n' "$(shasum < "$f" | cut -d' ' -f1)" "$f"
+    done) | shasum | cut -d' ' -f1
+}
 LINKED=""
 for P in $FORT_LINKS $FORT_COPIES; do
     [ -e "$FORT_ROOT/$P" ] || continue
@@ -160,7 +170,8 @@ for P in $FORT_LINKS $FORT_COPIES; do
     [ -e "$WT/$P" ] || [ -L "$WT/$P" ] && continue
     mkdir -p "$(dirname "$WT/$P")"
     case " $FORT_COPIES " in
-        *" $P "*) cp -R "$FORT_ROOT/$P" "$WT/$P" ;;
+        *" $P "*) cp -R "$FORT_ROOT/$P" "$WT/$P"
+                  printf '%s %s\n' "$(fingerprint "$WT" "$P")" "$P" >> "$COPIES_FILE" ;;
         *) ln -s "$FORT_ROOT/$P" "$WT/$P" ;;
     esac
     git -C "$WT" check-ignore -q -- "$P" || printf '/%s\n' "$P" >> "$EXCLUDE"
