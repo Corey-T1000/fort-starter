@@ -207,7 +207,10 @@ for g in (docs[1].get("groups", []) if len(docs) > 1 else []):
         print("--group", g["ref"], "--group-placement afterCurrent --group-reference", me); break
 ' 2>/dev/null)
         fi
-        if cmux new-workspace "$@" >/dev/null 2>&1; then
+        # An older cmux without the group flags refuses them; retry ungrouped.
+        if cmux new-workspace "$@" >/dev/null 2>&1 \
+           || { [ $# -gt 8 ] && cmux new-workspace --name "$SLUG" --description "$DESC" \
+                    --cwd "$WT" --command "$CMD" >/dev/null 2>&1; }; then
             LAUNCHED="cmux workspace '$SLUG'"
         else
             echo "fort-spawn: cmux refused the workspace; falling back to print." >&2
