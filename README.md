@@ -8,7 +8,7 @@ This was extracted from a personal setup that's been in daily use since December
 
 <p align="center">
   <img src="assets/explainer-loop.webp" alt="A day with fort-starter: /bod picks up where you left off, several desks work on the Fort Board, /eod writes down what was learned, and the next morning's session already knows it" width="900">
-  <br><sub>A day with fort-starter. <a href="assets/explainer.mp4">Watch the 44-second explainer</a>.</sub>
+  <br><sub>A day with fort-starter. <a href="https://cdn.jsdelivr.net/gh/Corey-T1000/fort-starter@main/assets/explainer.mp4">Watch the 44-second explainer</a>.</sub>
 </p>
 
 > **New in October 2026:** run several sessions at once with `/spawn`, the Fort Board sidebar and quick replies. See [Running several sessions at once](#running-several-sessions-at-once) and the [changelog](CHANGELOG.md).
@@ -94,7 +94,7 @@ Setup for the board and relay: [`core/cmux/README.md`](core/cmux/README.md). Spa
 ## The five layers
 
 <p align="center">
-  <a href="assets/explainer.mp4"><img src="assets/explainer-poster.jpg" alt="The five layers stacked like the logo: Config and Hooks at the base, Memory and Skills above them, CLI on top. Click to watch the explainer" width="720"></a>
+  <a href="https://cdn.jsdelivr.net/gh/Corey-T1000/fort-starter@main/assets/explainer.mp4"><img src="assets/explainer-poster.jpg" alt="The five layers stacked like the logo: Config and Hooks at the base, Memory and Skills above them, CLI on top. Click to watch the explainer" width="720"></a>
 </p>
 
 ```
