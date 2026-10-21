@@ -189,8 +189,25 @@ case "$LAUNCHER" in
         # " · from <uuid>" nests it under the desk it was spawned from.
         DESC="spawn · $BRANCH"
         [ -z "${CMUX_WORKSPACE_ID:-}" ] || DESC="$DESC · from $CMUX_WORKSPACE_ID"
-        if cmux new-workspace --name "$SLUG" --description "$DESC" \
-               --cwd "$WT" --command "$CMD" >/dev/null 2>&1; then
+        # The board nests a desk only inside its parent's sidebar group, so a
+        # desk spawned from a grouped workspace joins that group, right after it.
+        # Best effort: no python3 or no group means the old ungrouped placement.
+        set -- --name "$SLUG" --description "$DESC" --cwd "$WT" --command "$CMD"
+        if [ -n "${CMUX_WORKSPACE_ID:-}" ] && command -v python3 >/dev/null 2>&1; then
+            # shellcheck disable=SC2046  # two refs, word-split on purpose
+            set -- "$@" $( { cmux identify --json; echo; cmux workspace-group list --json; } 2>/dev/null | python3 -c '
+import json, sys
+text, dec, docs, i = sys.stdin.read(), json.JSONDecoder(), [], 0
+while i < len(text):
+    if text[i].isspace(): i += 1; continue
+    doc, i = dec.raw_decode(text, i); docs.append(doc)
+me = (docs[0].get("caller") or {}).get("workspace_ref") if docs else None
+for g in (docs[1].get("groups", []) if len(docs) > 1 else []):
+    if me and me in g.get("member_workspace_refs", []):
+        print("--group", g["ref"], "--group-placement afterCurrent --group-reference", me); break
+' 2>/dev/null)
+        fi
+        if cmux new-workspace "$@" >/dev/null 2>&1; then
             LAUNCHED="cmux workspace '$SLUG'"
         else
             echo "fort-spawn: cmux refused the workspace; falling back to print." >&2
