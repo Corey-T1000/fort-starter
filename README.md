@@ -6,6 +6,11 @@ A template for building a persistent AI workspace on top of [Claude Code](https:
 
 This was extracted from a personal setup that's been in daily use since December 2025. The patterns here aren't theoretical -- they've survived ten months of real work across dozens of projects, usually with several agent sessions running side by side.
 
+<p align="center">
+  <img src="assets/explainer-loop.webp" alt="A day with fort-starter: /bod picks up where you left off, several desks work on the Fort Board, /eod writes down what was learned, and the next morning's session already knows it" width="900">
+  <br><sub>A day with fort-starter. <a href="assets/explainer.mp4">Watch the 44-second explainer</a>.</sub>
+</p>
+
 > **New in October 2026:** run several sessions at once with `/spawn`, the Fort Board sidebar and quick replies. See [Running several sessions at once](#running-several-sessions-at-once) and the [changelog](CHANGELOG.md).
 
 > _Heads up: this is a WIP and an ever-evolving project. The setup it was extracted from changes weekly, and this template tracks along with it. Pin a commit if you need stability._
@@ -64,11 +69,6 @@ Then `claude` to start your first session. See [Getting started](#getting-starte
 
 One session is a chat. The setup this came from usually has four to eight going: one per thread of work, each on its own branch. Three pieces make that manageable.
 
-<p align="center">
-  <img src="assets/fort-board.gif" alt="The Fort Board sidebar: a yes chip on signup-copy sends the reply, the desk cooks and finishes, and route-planner picks up its next task" width="420">
-  <br><sub>Six demo desks in two groups. Tapping <b>yes</b> on signup-copy types it into that session; both desks cook, then land on Done.</sub>
-</p>
-
 **1. `/spawn` -- branch a thought into its own desk.** Mid-conversation, a side idea shows up. `/spawn auth-refactor` writes a short brief from the current conversation (focus, files to read, constraints, what to deliver), creates `worktrees/auth-refactor` on branch `spawn/auth-refactor`, and opens a fresh Claude session there that starts from the brief. Your current session doesn't move. The new desk opens as a cmux workspace if you're in [cmux](https://github.com/manaflow-ai/cmux), a tmux window if you're in tmux, and otherwise prints the command to paste. Set `FORT_SPAWN_RC=1` and the desk also starts with Remote Control, so it shows up in the Claude app on your phone.
 
 **2. The Fort Board -- one column that says whose turn it is.** A cmux sidebar (`core/cmux/`) lists every desk with its state:
@@ -92,6 +92,10 @@ Setup for the board and relay: [`core/cmux/README.md`](core/cmux/README.md). Spa
 ---
 
 ## The five layers
+
+<p align="center">
+  <a href="assets/explainer.mp4"><img src="assets/explainer-poster.jpg" alt="The five layers stacked like the logo: Config and Hooks at the base, Memory and Skills above them, CLI on top. Click to watch the explainer" width="720"></a>
+</p>
 
 ```
                                ⚑
